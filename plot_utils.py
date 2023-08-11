@@ -202,6 +202,7 @@ def plot_weight_histos():
     for i in range(len(state_keys)):
         weights = torch.flatten(model.state_dict()[state_keys[i]])
         hist = axarr[i].hist(weights, bins=bins)[0]
+        print(hist / np.sum(hist))
 
     #     if np.max(hist) > max:
     #         max = np.max(hist)
@@ -209,7 +210,7 @@ def plot_weight_histos():
     # for i in range(4):
     #     axarr[i].set_ylim(bottom=0, top=max)
 
-    plt.savefig("/home/andre/weight_histos/robust_resnet_x.1.conv2.png")
+    # plt.savefig("/home/andre/weight_histos/robust_resnet_x.1.conv2.png")
 
 
 def make_stimuli_grid():
@@ -315,4 +316,43 @@ def plot_ranks(selected_layer):
     plt.ylabel("Rank")
     plt.title("Imnet Val Rank - Inh Ablated AlexNet Conv2d3")
     plt.savefig("/home/andre/rank_data/imnet_val_rank_inh_abl_alexnet_conv2d3.png")
+    plt.close()
+
+
+def tuning_curve_plot(layer, neuron):
+    # Find indices in all_ord_list where all_ord_sorted[0:9] occurs in abl_all_ord_sorted.
+    #   Index of abl_all_ord_sorted where it equals all_ord_sorted[0:9].  These indices
+    #   can then be deleted from abl_all_act_list.
+    all_ord_sorted = np.load(
+        f"/home/andre/tuning_curves/alexnet/intact/layer{layer}_unit{neuron}_intact_all_ord_sorted.npy"
+    )
+    all_ord_list = np.arange(len(all_ord_sorted)).tolist()
+    abl_unrolled_act = np.load(
+        f"/home/andre/tuning_curves/alexnet/inh_abl/layer{layer}_unit{neuron}_inh_abl_unrolled_act.npy"
+    )
+
+    intact_top_abl_acts = np.array(abl_unrolled_act)[list(all_ord_sorted[:9])].tolist()
+    intact_bot_abl_acts = np.array(abl_unrolled_act)[list(all_ord_sorted[-9:])].tolist()
+
+    abl_all_act_list, abl_all_ord_sorted = zip(*sorted(zip(abl_unrolled_act, all_ord_list), reverse=True))
+
+    #   Perform Spearman rank corr for intact and ablate sorted orders.
+    # print(spearmanr(np.array(all_ord_list), np.array(abl_unrolled_act)[list(all_ord_sorted)]))
+    # exit()
+
+    top_indices = [abl_all_ord_sorted.index(i) for i in all_ord_sorted[0:9]]
+    bot_indices = [abl_all_ord_sorted.index(i) for i in all_ord_sorted[-9:]]
+
+    abl_all_act_list = np.delete(np.array(abl_all_act_list), top_indices + bot_indices).tolist()
+    all_ord_list = np.delete(np.array(all_ord_list), top_indices + bot_indices).tolist()
+
+    plt.scatter(all_ord_list, abl_all_act_list, color='b')
+    plt.scatter(top_indices, intact_top_abl_acts, color='g', label="Intact Top 9")
+    plt.scatter(bot_indices, intact_bot_abl_acts, color='r', label="Intact Bot 9")
+    plt.xlabel("Image")
+    plt.ylabel("Activation")
+    plt.title(f"Negative-Weight Ablated Tuning Curve - AlexNet Conv2d10 Unit {neuron}")
+    plt.legend(loc="upper right")
+    plt.savefig(os.path.join('/home/andre/tuning_curves/alexnet/inh_abl', 'neg_abl_tuning_curve_l%d_n%d_new.png'
+                             % (layer, neuron)))
     plt.close()
