@@ -4,7 +4,154 @@ import torch
 from PIL import Image
 import matplotlib.pyplot as plt
 from torchvision import models
-from scipy.stats import spearmanr, f_oneway
+from scipy.stats import spearmanr, f_oneway, ttest_ind
+
+
+def pair_plot_acts(selected_layer, network):
+    savedir = "/home/andre/max_stim_inputs/split/pos"
+
+    top9_all_acts = []
+    top9_all_errors = []
+
+    bot9_all_acts = []
+    bot9_all_errors = []
+
+    proto_all_acts = []
+    proto_all_errors = []
+
+    antiproto_all_acts = []
+    antiproto_all_errors = []
+
+    poslucent_all_acts = []
+    poslucent_all_errors = []
+
+    neglucent_all_acts = []
+    neglucent_all_errors = []
+
+    f, axarr = plt.subplots(1, 4, layout='tight', figsize=(12, 5))
+    f.suptitle("Mean L1 Norm of Positive-Position Input Tensor\nTrained AlexNet Layer Conv2d10, First 32 Units")
+    axarr[0].set_xticks([0, 1], ["Top 9", "Prototypes"])
+    axarr[1].set_xticks([0, 1], ["Bot 9", "Anti-prototypes"])
+    axarr[2].set_xticks([0, 1], ["Top 9", "Positive Lucents"])
+    axarr[3].set_xticks([0, 1], ["Bot 9", "Negative Lucents"])
+
+    num_units = 32
+    jitter = np.random.normal(scale=0.1, size=num_units)
+    alpha = 0.3
+
+    for i in range(num_units):
+        #   Top 9
+        top9_acts = np.load(
+            os.path.join(savedir, network, f"layer{selected_layer}_unit{i}_top_norms.npy")
+        )
+        top9_mean = np.mean(top9_acts)
+        top9_error = np.std(top9_acts) / np.sqrt(top9_acts.shape[0])
+        top9_all_acts.append(top9_mean)
+        top9_all_errors.append(top9_error)
+
+        #   Prototype
+        proto_acts = np.load(
+            os.path.join(savedir, network, f"layer{selected_layer}_unit{i}_proto_norms.npy")
+        )
+        proto_mean = np.mean(proto_acts)
+        proto_error = np.std(proto_acts) / np.sqrt(proto_acts.shape[0])
+        proto_all_acts.append(proto_mean)
+        proto_all_errors.append(proto_error)
+
+        #   Plot line which connects the two.
+        axarr[0].plot([jitter[i], 1+jitter[i]], np.array([top9_mean, proto_mean]), c='g', linewidth=0.5, alpha=alpha)
+
+        #   Bot 9
+        bot9_acts = np.load(
+            os.path.join(savedir, network, f"layer{selected_layer}_unit{i}_bot_norms.npy")
+        )
+        bot9_mean = np.mean(bot9_acts)
+        bot9_error = np.std(bot9_acts) / np.sqrt(bot9_acts.shape[0])
+        bot9_all_acts.append(bot9_mean)
+        bot9_all_errors.append(bot9_error)
+
+        #   Anti-Prototype
+        antiproto_acts = np.load(
+            os.path.join(savedir, network, f"layer{selected_layer}_unit{i}_antiproto_norms.npy")
+        )
+        antiproto_mean = np.mean(antiproto_acts)
+        antiproto_error = np.std(antiproto_acts) / np.sqrt(antiproto_acts.shape[0])
+        antiproto_all_acts.append(antiproto_mean)
+        antiproto_all_errors.append(antiproto_error)
+
+        #   Plot line which connects the two.
+        axarr[1].plot([jitter[i], 1 + jitter[i]], np.array([bot9_mean, antiproto_mean]), c='r', linewidth=0.5, alpha=alpha)
+
+        #   Positive Lucents
+        poslucent_acts = np.load(
+            os.path.join(savedir, network, f"layer{selected_layer}_unit{i}_poslucent_norms.npy")
+        )
+        poslucent_mean = np.mean(poslucent_acts)
+        poslucent_error = np.std(poslucent_acts) / np.sqrt(poslucent_acts.shape[0])
+        poslucent_all_acts.append(poslucent_mean)
+        poslucent_all_errors.append(poslucent_error)
+
+        #   Plot line which connects the two.
+        axarr[2].plot([jitter[i], 1 + jitter[i]], np.array([top9_mean, poslucent_mean]), c='g', linewidth=0.5, alpha=alpha)
+
+        #   Negative Lucents
+        neglucent_acts = np.load(
+            os.path.join(savedir, network, f"layer{selected_layer}_unit{i}_neglucent_norms.npy")
+        )
+        neglucent_mean = np.mean(neglucent_acts)
+        neglucent_error = np.std(neglucent_acts) / np.sqrt(neglucent_acts.shape[0])
+        neglucent_all_acts.append(neglucent_mean)
+        neglucent_all_errors.append(neglucent_error)
+
+        #   Plot line which connects the two.
+        axarr[3].plot([jitter[i], 1 + jitter[i]], np.array([bot9_mean, neglucent_mean]), c='r', linewidth=0.5, alpha=alpha)
+
+    axarr[0].errorbar(
+        jitter, np.array(top9_all_acts), np.array(top9_all_errors),
+        fmt='go', alpha=alpha
+    )
+    axarr[0].errorbar(
+        np.ones(len(proto_all_acts)) + jitter, np.array(proto_all_acts), np.array(proto_all_errors),
+        fmt='go', alpha=alpha
+    )
+
+    axarr[1].errorbar(
+        jitter, np.array(bot9_all_acts), np.array(bot9_all_errors),
+        fmt='ro', alpha=alpha
+    )
+    axarr[1].errorbar(
+        np.ones(len(antiproto_all_acts)) + jitter, np.array(antiproto_all_acts), np.array(antiproto_all_errors),
+        fmt='ro', alpha=alpha
+    )
+
+    axarr[2].errorbar(
+        jitter, np.array(top9_all_acts), np.array(top9_all_errors),
+        fmt='go', alpha=alpha
+    )
+    axarr[2].errorbar(
+        np.ones(len(poslucent_all_acts)) + jitter, np.array(poslucent_all_acts), np.array(poslucent_all_errors),
+        fmt='go', alpha=alpha
+    )
+
+    axarr[3].errorbar(
+        jitter, np.array(bot9_all_acts), np.array(bot9_all_errors),
+        fmt='ro', alpha=alpha
+    )
+    axarr[3].errorbar(
+        np.ones(len(neglucent_all_acts)) + jitter, np.array(neglucent_all_acts), np.array(neglucent_all_errors),
+        fmt='ro', alpha=alpha
+    )
+
+    all_acts = np.concatenate(
+        (top9_all_acts, bot9_all_acts, proto_all_acts, antiproto_all_acts, poslucent_all_acts, neglucent_all_acts)
+    )
+    act_range = np.max(all_acts) - np.min(all_acts)
+    for ax in axarr:
+        ax.set_ylabel("Norm Mean")
+        ax.set_ylim(bottom=np.min(all_acts) - (0.1 * act_range), top=np.max(all_acts) + (0.1 * act_range))
+
+    plt.savefig(os.path.join(savedir, "l1_norms_trained_alexnet_conv2d10_32.png"), dpi=256)
+    plt.close()
 
 
 def pair_plot_ranks(selected_layer, network):
@@ -34,14 +181,15 @@ def pair_plot_ranks(selected_layer, network):
     # tick_labels = []
 
     f, axarr = plt.subplots(1, 4, layout='tight', figsize=(8, 5))
-    f.suptitle("Intact vs. Negative-Weight Ablated Rank\nUntrained ResNet18 Layer 4.1 Conv2, First 24 Units")
+    # f.suptitle("Intact vs. Positive-Weight Ablated Rank\nUntrained AlexNet Layer Conv2d10, First 100 Units")
+    f.suptitle("Intact vs. Negative-Weight Ablated Rank\nRobust ResNet18 Layer 4.1 Conv2, First 100 Units")
     for i in range(4):
         axarr[i].set_xticks([0, 1], ["Intact", "Ablated"])
         axarr[i].set_ylabel("Rank")
         axarr[i].set_ylim(bottom=-1000, top=51000)
         axarr[i].invert_yaxis()
 
-    num_units = 24
+    num_units = 100
     jitter = np.random.normal(scale=0.1, size=num_units)
     alpha = 0.3
     for i in range(num_units):
@@ -176,13 +324,14 @@ def pair_plot_ranks(selected_layer, network):
 
     print(f"Mean proto:  {np.mean(np.array(abl_proto_ranks))},  Mean top9:  {np.mean(np.array(abl_top9_ranks))}")
     print(f"Proto - Top 9 Rank Diff:      {np.mean(np.array(abl_proto_ranks)) - np.mean(np.array(abl_top9_ranks))}")
-    print(f_oneway(np.array(abl_proto_ranks), np.array(abl_top9_ranks)))
+    print(ttest_ind(np.array(abl_proto_ranks), np.array(abl_top9_ranks), equal_var=False))
 
     print(f"Mean antiproto:  {np.mean(np.array(abl_antiproto_ranks))},  Mean bot9:  {np.mean(np.array(abl_bot9_ranks))}")
     print(f"Antiproto - Bot 9 Rank Diff:  {np.mean(np.array(abl_antiproto_ranks)) - np.mean(np.array(abl_bot9_ranks))}")
-    print(f_oneway(np.array(abl_antiproto_ranks), np.array(abl_bot9_ranks)))
+    print(ttest_ind(np.array(abl_antiproto_ranks), np.array(abl_bot9_ranks), equal_var=False))
 
-    plt.savefig("/home/andre/rank_data/imnet_val_rank_intact_v_inh_abl_untrained_resnet18_layer4.1.Conv2dconv2_100.png", dpi=256)
+    # plt.savefig("/home/andre/rank_data/imnet_val_rank_intact_v_exc_abl_untrained_alexnet_conv2d10_100.png", dpi=256)
+    plt.savefig("/home/andre/rank_data/imnet_val_rank_intact_v_inh_abl_robust_resnet18_layer4.1.Conv2dconv2_100.png", dpi=256)
     plt.close()
 
 
