@@ -21,11 +21,8 @@ from circuit_toolkit.Optimizers import CholeskyCMAES
 from selectivity_codes.insilico_RF_save import get_center_pos_and_rf
 from selectivity_codes.utils import normalize
 
-from modify_weights import invert_weights, clamp_ablate_unit
+from modify_weights import clamp_ablate_unit
 
-
-savedir = r"/home/andre/evolved_data" # Temporary save directory
-# savedir = r"N:\Users\Andre\evolved_data" # Temporary save directory
 
 # un-comment to use our new one! 
 # optim = ZOHA_Sphere_lr_euclid(4096, population_size=40, select_size=20, lr=1.5, sphere_norm=300)
@@ -37,19 +34,30 @@ parser.add_argument('--neuron', type=int)
 parser.add_argument('--layer_name', type=str)
 parser.add_argument('--neuron_coord', type=int)
 parser.add_argument('--type', type=str, required=False)
+parser.add_argument('--ablate', action='store_true', default=False)
+parser.add_argument('--weight_name', type=str, required=False)
 args = parser.parse_args()
 
 type_label = ''
 states = None
-if args.type == 'resnet18-untrained':
+if args.type == 'alexnet-untrained':
+    type_label = 'untrained_'
+    states = torch.load("/home/andre/tuning_curves/untrained_alexnet/random_weights.pth")
+elif args.type == 'resnet18-untrained':
     type_label = 'untrained_'
     states = torch.load("/home/andre/tuning_curves/untrained_resnet18/random_weights.pth")
 elif args.type == 'resnet18-robust':
     type_label = 'robust_'
     states = torch.load("/home/andre/model_weights/resnet-18-l2-eps3.pt")
 
-explabel = f"{args.network}_{type_label}{args.layer_name}"
+explabel = f"new_{args.network}_{type_label}{args.layer_name}"
 model_unit = (args.network, args.layer_name, args.neuron, args.neuron_coord, args.neuron_coord)
+
+savedir = None
+if args.ablate:
+    savedir = r"/home/andre/evolved_data_ablated"
+else:
+    savedir = r"/home/andre/evolved_data"
 
 savedir = os.path.join(savedir, explabel + f"_unit{model_unit[2]}")
 if not os.path.isdir(savedir):
@@ -79,9 +87,10 @@ for i in range(runs):
     if states is not None:
         Exp.CNNmodel.model.load_state_dict(states)
 
-    # Exp.CNNmodel.model.load_state_dict(
-    #     clamp_ablate_unit(Exp.CNNmodel.model.state_dict(), 'features.10.weight', args.neuron, min=0, max=None)
-    # )
+    if args.ablate:
+        Exp.CNNmodel.model.load_state_dict(
+            clamp_ablate_unit(Exp.CNNmodel.model.state_dict(), args.weight_name, args.neuron, min=0, max=None)
+        )
 
     if i == 0:
         cent_pos, corner, imgsize, Xlim, Ylim, gradAmpmap = get_center_pos_and_rf(
@@ -110,9 +119,10 @@ for i in range(runs):
     if states is not None:
         Exp.CNNmodel.model.load_state_dict(states)
 
-    # Exp.CNNmodel.model.load_state_dict(
-    #     clamp_ablate_unit(Exp.CNNmodel.model.state_dict(), 'features.10.weight', args.neuron, min=None, max=0)
-    # )
+    if args.ablate:
+        Exp.CNNmodel.model.load_state_dict(
+            clamp_ablate_unit(Exp.CNNmodel.model.state_dict(), args.weight_name, args.neuron, min=None, max=0)
+        )
 
     # if i == 0:
     #     cent_pos, corner, imgsize, Xlim, Ylim, gradAmpmap = get_center_pos_and_rf(

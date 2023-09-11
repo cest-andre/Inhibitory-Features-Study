@@ -49,8 +49,8 @@ def extract_ranks(extractor, topdir, botdir, protodir, antiprotodir, poslucentdi
     proto_imgs = [Image.open(os.path.join(protodir, file)) for file in os.listdir(protodir)]
     antiproto_imgs = [Image.open(os.path.join(antiprotodir, file)) for file in os.listdir(antiprotodir)]
 
-    # poslucent_imgs = [Image.open(os.path.join(protodir, file)) for file in os.listdir(poslucentdir)]
-    # neglucent_imgs = [Image.open(os.path.join(antiprotodir, file)) for file in os.listdir(neglucentdir)]
+    # poslucent_imgs = [Image.open(os.path.join(poslucentdir, file)) for file in os.listdir(poslucentdir)]
+    # neglucent_imgs = [Image.open(os.path.join(neglucentdir, file)) for file in os.listdir(neglucentdir)]
 
     top_ranks = []
     bot_ranks = []
@@ -72,7 +72,7 @@ def extract_ranks(extractor, topdir, botdir, protodir, antiprotodir, poslucentdi
     for i in range(iters):
         if ablate:
             extractor.model.load_state_dict(
-                clamp_ablate_unit(extractor.model.state_dict(), module_name + '.weight', selected_neuron, min=None, max=0)
+                clamp_ablate_unit(extractor.model.state_dict(), module_name + '.weight', selected_neuron, min=0, max=None)
             )
         # else:
             # p = percentages[i]
@@ -125,11 +125,11 @@ def extract_ranks(extractor, topdir, botdir, protodir, antiprotodir, poslucentdi
         #     for act in acts
         # ])
 
-    return top_ranks, bot_ranks, proto_ranks, antiproto_ranks, None, None
+    return top_ranks, bot_ranks, proto_ranks, antiproto_ranks, poslucent_ranks, neglucent_ranks
 
-
+#   For resnet, take batchnorm layer as inputs and use torch.clamp(inputs, min=0, max=None) to simulate relu
 def extract_max_stim_inputs(extractor, topdir, botdir, protodir, antiprotodir, poslucentdir, neglucentdir,
-                            selected_neuron, module_name, split=False, model_name='alexnet_untrained'):
+                            selected_neuron, module_name, split=False, model_name=''):
     savedir = "/home/andre/max_stim_inputs"
 
     top_imgs = [Image.open(os.path.join(topdir, file)) for file in os.listdir(topdir)]
@@ -140,24 +140,24 @@ def extract_max_stim_inputs(extractor, topdir, botdir, protodir, antiprotodir, p
     poslucent_imgs = [Image.open(os.path.join(poslucentdir, file)) for file in os.listdir(poslucentdir)]
     neglucent_imgs = [Image.open(os.path.join(neglucentdir, file)) for file in os.listdir(neglucentdir)]
 
-    top_inputs = torch.tensor(get_max_stim_acts(extractor, top_imgs, module_name))[:, :, :, 5:8, 5:8]
-    bot_inputs = torch.tensor(get_max_stim_acts(extractor, bot_imgs, module_name))[:, :, :, 5:8, 5:8]
-    proto_inputs = torch.tensor(get_max_stim_acts(extractor, proto_imgs, module_name))[:, :, :, 5:8, 5:8]
-    antiproto_inputs = torch.tensor(get_max_stim_acts(extractor, antiproto_imgs, module_name))[:, :, :, 5:8, 5:8]
+    top_inputs = torch.tensor(get_max_stim_acts(extractor, top_imgs, module_name))[:, :, :, 2:5, 2:5]
+    bot_inputs = torch.tensor(get_max_stim_acts(extractor, bot_imgs, module_name))[:, :, :, 2:5, 2:5]
+    proto_inputs = torch.tensor(get_max_stim_acts(extractor, proto_imgs, module_name))[:, :, :, 2:5, 2:5]
+    antiproto_inputs = torch.tensor(get_max_stim_acts(extractor, antiproto_imgs, module_name))[:, :, :, 2:5, 2:5]
 
-    poslucent_inputs = torch.tensor(get_max_stim_acts(extractor, poslucent_imgs, module_name))[:, :, :, 5:8, 5:8]
-    neglucent_inputs = torch.tensor(get_max_stim_acts(extractor, neglucent_imgs, module_name))[:, :, :, 5:8, 5:8]
+    poslucent_inputs = torch.tensor(get_max_stim_acts(extractor, poslucent_imgs, module_name))[:, :, :, 2:5, 2:5]
+    neglucent_inputs = torch.tensor(get_max_stim_acts(extractor, neglucent_imgs, module_name))[:, :, :, 2:5, 2:5]
 
-    top_inputs = torch.flatten(top_inputs, start_dim=1, end_dim=-1)
-    bot_inputs = torch.flatten(bot_inputs, start_dim=1, end_dim=-1)
-    proto_inputs = torch.flatten(proto_inputs, start_dim=1, end_dim=-1)
-    antiproto_inputs = torch.flatten(antiproto_inputs, start_dim=1, end_dim=-1)
+    top_inputs = torch.flatten(torch.clamp(top_inputs, min=0, max=None), start_dim=1, end_dim=-1)
+    bot_inputs = torch.flatten(torch.clamp(bot_inputs, min=0, max=None), start_dim=1, end_dim=-1)
+    proto_inputs = torch.flatten(torch.clamp(proto_inputs, min=0, max=None), start_dim=1, end_dim=-1)
+    antiproto_inputs = torch.flatten(torch.clamp(antiproto_inputs, min=0, max=None), start_dim=1, end_dim=-1)
 
-    poslucent_inputs = torch.flatten(poslucent_inputs, start_dim=1, end_dim=-1)
-    neglucent_inputs = torch.flatten(neglucent_inputs, start_dim=1, end_dim=-1)
+    poslucent_inputs = torch.flatten(torch.clamp(poslucent_inputs, min=0, max=None), start_dim=1, end_dim=-1)
+    neglucent_inputs = torch.flatten(torch.clamp(neglucent_inputs, min=0, max=None), start_dim=1, end_dim=-1)
 
     if split:
-        weights = extractor.model.state_dict()['features.10.weight'][selected_neuron]
+        weights = extractor.model.state_dict()['layer4.1.conv2.weight'][selected_neuron]
         weights = torch.flatten(weights).cpu()
 
         #   Positive-weighted inputs only.
@@ -248,7 +248,7 @@ def compare_tuning_curves(model, savedir, layer, selected_layer, selected_neuron
                           ablate=True, extractor=None, neuron_coord=None):
     #   Intact tuning curve.
     if ablate:
-        model.load_state_dict(clamp_ablate_unit(model.state_dict(), module_name + '.weight', selected_neuron, min=None, max=0))
+        model.load_state_dict(clamp_ablate_unit(model.state_dict(), module_name + '.weight', selected_neuron, min=0, max=None))
 
     all_images = act_list = unrolled_act = all_act_list = all_ord_sorted = None
     if extractor is None:
@@ -261,11 +261,11 @@ def compare_tuning_curves(model, savedir, layer, selected_layer, selected_neuron
     if ablate:
         # saveTopN(all_images, all_ord_sorted, f"layer{selected_layer}_neuron{selected_neuron}", path=savedir)
 
-        np.save(os.path.join(savedir, f"layer{selected_layer}_unit{selected_neuron}_exc_abl_unrolled_act.npy"),
+        np.save(os.path.join(savedir, f"layer{selected_layer}_unit{selected_neuron}_inh_abl_unrolled_act.npy"),
                 np.array(unrolled_act))
-        np.save(os.path.join(savedir, f"layer{selected_layer}_unit{selected_neuron}_exc_abl_all_act_list.npy"),
+        np.save(os.path.join(savedir, f"layer{selected_layer}_unit{selected_neuron}_inh_abl_all_act_list.npy"),
                 np.array(list(all_act_list)))
-        np.save(os.path.join(savedir, f"layer{selected_layer}_unit{selected_neuron}_exc_abl_all_ord_sorted.npy"),
+        np.save(os.path.join(savedir, f"layer{selected_layer}_unit{selected_neuron}_inh_abl_all_ord_sorted.npy"),
                 np.array(list(all_ord_sorted)))
     else:
         saveTopN(all_images, all_ord_sorted, f"layer{selected_layer}_neuron{selected_neuron}", path=savedir)
@@ -293,14 +293,14 @@ if __name__ == '__main__':
     selected_layer = args.selected_layer
     selected_neuron = args.neuron
 
-    model_name = neuron_coord = module_name = states = None
+    model_name = type = neuron_coord = module_name = states = None
     curvedir = ranksdir = actsdir = None
     topdir = botdir = protodir = antiprotodir = poslucentdir = neglucentdir = None
 
     if args.network == 'alexnet':
         model_name = 'alexnet'
-        neuron_coord = 6
-        module_name = 'features.10'
+        neuron_coord = 27
+        module_name = 'features.0'
         if args.ablate:
             curvedir = '/home/andre/tuning_curves/alexnet/inh_abl'
             ranksdir = '/home/andre/rank_data/inh_abl/alexnet_trained'
@@ -322,8 +322,8 @@ if __name__ == '__main__':
 
     elif args.network == 'alexnet-untrained':
         model_name = 'alexnet'
-        neuron_coord = 6
-        module_name = 'features.10'
+        neuron_coord = 27
+        module_name = 'features.0'
         states = torch.load("/home/andre/tuning_curves/untrained_alexnet/random_weights.pth")
 
         if args.ablate:
@@ -345,16 +345,16 @@ if __name__ == '__main__':
         poslucentdir = f"/home/andre/lucent_imgs/alexnet_untrained/{selected_neuron}/pos"
         neglucentdir = f"/home/andre/lucent_imgs/alexnet_untrained/{selected_neuron}/neg"
 
-    elif args.network == 'resnet18':
+    elif args.network == 'resnet18_trained':
         model_name = 'resnet18'
-        neuron_coord = 3
-        module_name = 'layer4.1.conv2'
+        neuron_coord = 56
+        module_name = 'conv1'
 
         if args.ablate:
-            curvedir = '/home/andre/tuning_curves/resnet18/exc_abl'
-            ranksdir = '/home/andre/rank_data/exc_abl/resnet18_trained'
+            curvedir = '/home/andre/tuning_curves/resnet18/inh_abl'
+            ranksdir = '/home/andre/rank_data/inh_abl/resnet18_trained'
 
-            actsdir = os.path.join(curvedir, f'layer{selected_layer}_unit{selected_neuron}_exc_abl_unrolled_act.npy')
+            actsdir = os.path.join(curvedir, f'layer{selected_layer}_unit{selected_neuron}_inh_abl_unrolled_act.npy')
         else:
             curvedir = '/home/andre/tuning_curves/resnet18/intact'
             ranksdir = '/home/andre/rank_data/intact/resnet18_trained'
@@ -363,20 +363,23 @@ if __name__ == '__main__':
 
         topdir = f'/home/andre/tuning_curves/resnet18/intact/layer{selected_layer}_neuron{selected_neuron}/max/exc'
         botdir = f'/home/andre/tuning_curves/resnet18/intact/layer{selected_layer}_neuron{selected_neuron}/max/inh'
-        protodir = f'/home/andre/evolved_data/resnet18_.layer4.1.Conv2dconv2_unit{selected_neuron}/exc/no_mask'
-        antiprotodir = f'/home/andre/evolved_data/resnet18_.layer4.1.Conv2dconv2_unit{selected_neuron}/inh/no_mask'
+        protodir = f'/home/andre/evolved_data/resnet18_.Conv2dconv1_unit{selected_neuron}/exc/no_mask'
+        antiprotodir = f'/home/andre/evolved_data/resnet18_.Conv2dconv1_unit{selected_neuron}/inh/no_mask'
 
-    elif args.network == 'resnet18-untrained':
+        poslucentdir = f"/home/andre/lucent_imgs/resnet18_trained/{selected_neuron}/pos"
+        neglucentdir = f"/home/andre/lucent_imgs/resnet18_trained/{selected_neuron}/neg"
+
+    elif args.network == 'resnet18_untrained':
         model_name = 'resnet18'
-        neuron_coord = 3
-        module_name = 'layer4.1.conv2'
+        neuron_coord = 56
+        module_name = 'conv1'
         states = torch.load("/home/andre/tuning_curves/untrained_resnet18/random_weights.pth")
 
         if args.ablate:
-            curvedir = '/home/andre/tuning_curves/untrained_resnet18/exc_abl'
-            ranksdir = '/home/andre/rank_data/exc_abl/resnet18_untrained'
+            curvedir = '/home/andre/tuning_curves/untrained_resnet18/inh_abl'
+            ranksdir = '/home/andre/rank_data/inh_abl/resnet18_untrained'
 
-            actsdir = os.path.join(curvedir, f'layer{selected_layer}_unit{selected_neuron}_exc_abl_unrolled_act.npy')
+            actsdir = os.path.join(curvedir, f'layer{selected_layer}_unit{selected_neuron}_inh_abl_unrolled_act.npy')
         else:
             curvedir = '/home/andre/tuning_curves/untrained_resnet18/intact'
             ranksdir = '/home/andre/rank_data/intact/resnet18_untrained'
@@ -385,20 +388,23 @@ if __name__ == '__main__':
 
         topdir = f'/home/andre/tuning_curves/untrained_resnet18/intact/layer{selected_layer}_neuron{selected_neuron}/max/exc'
         botdir = f'/home/andre/tuning_curves/untrained_resnet18/intact/layer{selected_layer}_neuron{selected_neuron}/max/inh'
-        protodir = f'/home/andre/evolved_data/resnet18_untrained_.layer4.1.Conv2dconv2_unit{selected_neuron}/exc/no_mask'
-        antiprotodir = f'/home/andre/evolved_data/resnet18_untrained_.layer4.1.Conv2dconv2_unit{selected_neuron}/inh/no_mask'
+        protodir = f'/home/andre/evolved_data/resnet18_untrained_.Conv2dconv1_unit{selected_neuron}/exc/no_mask'
+        antiprotodir = f'/home/andre/evolved_data/resnet18_untrained_.Conv2dconv1_unit{selected_neuron}/inh/no_mask'
 
-    elif args.network == 'resnet18-robust':
+        poslucentdir = f"/home/andre/lucent_imgs/resnet18_untrained/{selected_neuron}/pos"
+        neglucentdir = f"/home/andre/lucent_imgs/resnet18_untrained/{selected_neuron}/neg"
+
+    elif args.network == 'resnet18_robust':
         model_name = 'resnet18'
-        neuron_coord = 3
-        module_name = 'layer4.1.conv2'
+        neuron_coord = 56
+        module_name = 'conv1'
         states = torch.load("/home/andre/model_weights/resnet-18-l2-eps3.pt")
 
         if args.ablate:
-            curvedir = '/home/andre/tuning_curves/resnet18_robust/exc_abl'
-            ranksdir = '/home/andre/rank_data/exc_abl/resnet18_robust'
+            curvedir = '/home/andre/tuning_curves/resnet18_robust/inh_abl'
+            ranksdir = '/home/andre/rank_data/inh_abl/resnet18_robust'
 
-            actsdir = os.path.join(curvedir, f'layer{selected_layer}_unit{selected_neuron}_exc_abl_unrolled_act.npy')
+            actsdir = os.path.join(curvedir, f'layer{selected_layer}_unit{selected_neuron}_inh_abl_unrolled_act.npy')
         else:
             curvedir = '/home/andre/tuning_curves/resnet18_robust/intact'
             ranksdir = '/home/andre/rank_data/intact/resnet18_robust'
@@ -407,8 +413,11 @@ if __name__ == '__main__':
 
         topdir = f'/home/andre/tuning_curves/resnet18_robust/intact/layer{selected_layer}_neuron{selected_neuron}/max/exc'
         botdir = f'/home/andre/tuning_curves/resnet18_robust/intact/layer{selected_layer}_neuron{selected_neuron}/max/inh'
-        protodir = f'/home/andre/evolved_data/resnet18_robust_.layer4.1.Conv2dconv2_unit{selected_neuron}/exc/no_mask'
-        antiprotodir = f'/home/andre/evolved_data/resnet18_robust_.layer4.1.Conv2dconv2_unit{selected_neuron}/inh/no_mask'
+        protodir = f'/home/andre/evolved_data/resnet18_robust_.Conv2dconv1_unit{selected_neuron}/exc/no_mask'
+        antiprotodir = f'/home/andre/evolved_data/resnet18_robust_.Conv2dconv1_unit{selected_neuron}/inh/no_mask'
+
+        poslucentdir = f"/home/andre/lucent_imgs/resnet18_robust/{selected_neuron}/pos"
+        neglucentdir = f"/home/andre/lucent_imgs/resnet18_robust/{selected_neuron}/neg"
 
     extractor = get_extractor(
         model_name=model_name,
@@ -421,7 +430,7 @@ if __name__ == '__main__':
         extractor.model.load_state_dict(states)
 
     # extract_max_stim_inputs(extractor, topdir, botdir, protodir, antiprotodir, poslucentdir, neglucentdir,
-    #                         selected_neuron, 'features.9', split=True)
+    #                         selected_neuron, 'layer4.1.bn1', split=True, model_name=args.network)
     # exit()
 
     compare_tuning_curves(extractor.model, curvedir, layer, selected_layer, selected_neuron, module_name,

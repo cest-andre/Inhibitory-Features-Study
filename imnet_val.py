@@ -16,7 +16,7 @@ from insilico_RF_save import get_center_pos_and_rf
 from transplant import get_activations
 
 
-def validate_tuning_curve_thingsvision(extractor, module_name, selected_neuron, neuron_coord, subset=None):
+def validate_tuning_curve_thingsvision(extractor, module_name, selected_neuron=None, neuron_coord=None, subset=None, sort_acts=True):
     batch_size = 256
     IMAGE_SIZE = 224
     # specify ImageNet mean and standard deviation
@@ -70,9 +70,11 @@ def validate_tuning_curve_thingsvision(extractor, module_name, selected_neuron, 
 
     all_ord_list = np.arange(im_count).tolist()
     unrolled_act = [num for sublist in activations for num in sublist]
-    all_act_list, all_ord_sorted = zip(*sorted(zip(unrolled_act, all_ord_list), reverse=True))
-
-    return all_images, act_list, unrolled_act, all_act_list, all_ord_sorted, input_acts
+    if sort_acts:
+        all_act_list, all_ord_sorted = zip(*sorted(zip(unrolled_act, all_ord_list), reverse=True))
+        return all_images, act_list, unrolled_act, all_act_list, all_ord_sorted, input_acts
+    else:
+        return all_images, act_list, unrolled_act, None, None, input_acts
 
 
 def validate_tuning_curve(model, layer, selected_layer, selected_neuron, subset=None):

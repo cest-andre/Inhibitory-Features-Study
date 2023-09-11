@@ -7,6 +7,74 @@ from torchvision import models
 from scipy.stats import spearmanr, f_oneway, ttest_ind
 
 
+def pair_plot_intact_abl_norms(layers, network):
+    savedir = "/home/andre/max_stim_inputs/intact_v_ablate"
+
+    f, axarr = plt.subplots(1, len(layers), layout='tight', figsize=(12, 5))
+    #   Put axarr in list if len(layers) == 1?
+    f.suptitle("Intact vs. Ablated Prototype Intact Activations\nTrained AlexNet First 32 Units")
+    # f.suptitle("Intact vs. Ablated Mean L1 Norm of Positive-Position Input Tensor\nTrained AlexNet Layer Conv3, First 32 Units")
+
+    # axarr[1].set_xticks([0, 1], ["Bot 9", "Anti-prototypes"])
+    # axarr[2].set_xticks([0, 1], ["Top 9", "Positive Lucents"])
+    # axarr[3].set_xticks([0, 1], ["Bot 9", "Negative Lucents"])
+
+    num_units = 32
+    jitter = np.random.normal(scale=0.1, size=num_units)
+    alpha = 0.3
+
+    for l in range(len(layers)):
+        intact_proto_all_acts = []
+        intact_proto_all_errors = []
+
+        ablate_proto_all_acts = []
+        ablate_proto_all_errors = []
+
+        layer = layers[l]
+        axarr[l].set_title(f"Layer {layer}")
+        axarr[l].set_xticks([0, 1], ["Intact", "Ablated"])
+
+        for i in range(num_units):
+            intact_proto_acts = np.load(
+                os.path.join(savedir, network, f"layer{layer}_unit{i}_intact_proto_intact_act.npy")
+            )
+            intact_proto_mean = np.mean(intact_proto_acts)
+            # print(f"Unit {i} proto act: {intact_proto_mean}")
+            intact_proto_error = np.std(intact_proto_acts) / np.sqrt(intact_proto_acts.shape[0])
+            intact_proto_all_acts.append(intact_proto_mean)
+            intact_proto_all_errors.append(intact_proto_error)
+
+            ablate_proto_acts = np.load(
+                os.path.join(savedir, network, f"layer{layer}_unit{i}_ablated_proto_intact_act.npy")
+            )
+            ablate_proto_mean = np.mean(ablate_proto_acts)
+            ablate_proto_error = np.std(ablate_proto_acts) / np.sqrt(ablate_proto_acts.shape[0])
+            ablate_proto_all_acts.append(ablate_proto_mean)
+            ablate_proto_all_errors.append(ablate_proto_error)
+
+            #   Plot line which connects the two.
+            axarr[l].plot([jitter[i], 1+jitter[i]], np.array([intact_proto_mean, ablate_proto_mean]), c='g', linewidth=0.5, alpha=alpha)
+
+        axarr[l].errorbar(
+            jitter, np.array(intact_proto_all_acts), np.array(intact_proto_all_errors),
+            fmt='go', alpha=alpha
+        )
+        axarr[l].errorbar(
+            np.ones(len(ablate_proto_all_acts)) + jitter, np.array(ablate_proto_all_acts), np.array(ablate_proto_all_errors),
+            fmt='go', alpha=alpha
+        )
+
+        all_acts = np.concatenate(
+            (intact_proto_all_acts, ablate_proto_all_acts)
+        )
+        act_range = np.max(all_acts) - np.min(all_acts)
+        axarr[l].set_ylabel("Activation")
+        axarr[l].set_ylim(bottom=np.min(all_acts) - (0.1 * act_range), top=np.max(all_acts) + (0.1 * act_range))
+
+    plt.savefig(os.path.join(savedir, "intact_v_ablate_proto_intact_act_trained_alexnet_32.png"), dpi=256)
+    plt.close()
+
+
 def pair_plot_acts(selected_layer, network):
     savedir = "/home/andre/max_stim_inputs/split/pos"
 
@@ -29,7 +97,7 @@ def pair_plot_acts(selected_layer, network):
     neglucent_all_errors = []
 
     f, axarr = plt.subplots(1, 4, layout='tight', figsize=(12, 5))
-    f.suptitle("Mean L1 Norm of Positive-Position Input Tensor\nTrained AlexNet Layer Conv2d10, First 32 Units")
+    f.suptitle("Mean L1 Norm of Positive-Position Input Tensor\nUntrained ResNet18 Layer 4.1 Conv2, First 32 Units")
     axarr[0].set_xticks([0, 1], ["Top 9", "Prototypes"])
     axarr[1].set_xticks([0, 1], ["Bot 9", "Anti-prototypes"])
     axarr[2].set_xticks([0, 1], ["Top 9", "Positive Lucents"])
@@ -150,7 +218,7 @@ def pair_plot_acts(selected_layer, network):
         ax.set_ylabel("Norm Mean")
         ax.set_ylim(bottom=np.min(all_acts) - (0.1 * act_range), top=np.max(all_acts) + (0.1 * act_range))
 
-    plt.savefig(os.path.join(savedir, "l1_norms_trained_alexnet_conv2d10_32.png"), dpi=256)
+    plt.savefig(os.path.join(savedir, "l1_norms_untrained_resnet18_layers4.1.conv2_32.png"), dpi=256)
     plt.close()
 
 
@@ -181,15 +249,15 @@ def pair_plot_ranks(selected_layer, network):
     # tick_labels = []
 
     f, axarr = plt.subplots(1, 4, layout='tight', figsize=(8, 5))
-    # f.suptitle("Intact vs. Positive-Weight Ablated Rank\nUntrained AlexNet Layer Conv2d10, First 100 Units")
-    f.suptitle("Intact vs. Negative-Weight Ablated Rank\nRobust ResNet18 Layer 4.1 Conv2, First 100 Units")
+    f.suptitle("Intact vs. Negative-Weight Ablated Rank\nTrained AlexNet Layer Conv2d2, First 10 Units")
+    # f.suptitle("Intact vs. Negative-Weight Ablated Rank\nRobust ResNet18 Layer 4.1 Conv2, First 100 Units")
     for i in range(4):
         axarr[i].set_xticks([0, 1], ["Intact", "Ablated"])
         axarr[i].set_ylabel("Rank")
         axarr[i].set_ylim(bottom=-1000, top=51000)
         axarr[i].invert_yaxis()
 
-    num_units = 100
+    num_units = 10
     jitter = np.random.normal(scale=0.1, size=num_units)
     alpha = 0.3
     for i in range(num_units):
@@ -330,8 +398,8 @@ def pair_plot_ranks(selected_layer, network):
     print(f"Antiproto - Bot 9 Rank Diff:  {np.mean(np.array(abl_antiproto_ranks)) - np.mean(np.array(abl_bot9_ranks))}")
     print(ttest_ind(np.array(abl_antiproto_ranks), np.array(abl_bot9_ranks), equal_var=False))
 
-    # plt.savefig("/home/andre/rank_data/imnet_val_rank_intact_v_exc_abl_untrained_alexnet_conv2d10_100.png", dpi=256)
-    plt.savefig("/home/andre/rank_data/imnet_val_rank_intact_v_inh_abl_robust_resnet18_layer4.1.Conv2dconv2_100.png", dpi=256)
+    plt.savefig("/home/andre/rank_data/imnet_val_rank_intact_v_inh_abl_trained_alexnet_conv2d2_10.png", dpi=256)
+    # plt.savefig("/home/andre/rank_data/imnet_val_rank_intact_v_inh_abl_robust_resnet18_layer4.1.Conv2dconv2_100.png", dpi=256)
     plt.close()
 
 
@@ -473,11 +541,11 @@ def tuning_curve_plot(layer, neuron):
     #   Index of abl_all_ord_sorted where it equals all_ord_sorted[0:9].  These indices
     #   can then be deleted from abl_all_act_list.
     all_ord_sorted = np.load(
-        f"/home/andre/tuning_curves/alexnet/intact/layer{layer}_unit{neuron}_intact_all_ord_sorted.npy"
+        f"/home/andre/tuning_curves/resnet18/intact/layer{layer}_unit{neuron}_intact_all_ord_sorted.npy"
     )
     all_ord_list = np.arange(len(all_ord_sorted)).tolist()
     abl_unrolled_act = np.load(
-        f"/home/andre/tuning_curves/alexnet/inh_abl/layer{layer}_unit{neuron}_inh_abl_unrolled_act.npy"
+        f"/home/andre/tuning_curves/resnet18/exc_abl/layer{layer}_unit{neuron}_exc_abl_unrolled_act.npy"
     )
 
     intact_top_abl_acts = np.array(abl_unrolled_act)[list(all_ord_sorted[:9])].tolist()
@@ -500,7 +568,7 @@ def tuning_curve_plot(layer, neuron):
     plt.scatter(bot_indices, intact_bot_abl_acts, color='r', label="Intact Bot 9")
     plt.xlabel("Image")
     plt.ylabel("Activation")
-    plt.title(f"Negative-Weight Ablated Tuning Curve - AlexNet Conv2d10 Unit {neuron}")
+    plt.title(f"Positive-Weight Ablated Tuning Curve - Trained ResNet18 Layer 4.1 Conv2 Unit {neuron}")
     plt.legend(loc="upper right")
     plt.savefig(os.path.join('/home/andre/tuning_curves/alexnet/inh_abl', 'neg_abl_tuning_curve_l%d_n%d_new.png'
                              % (layer, neuron)))
