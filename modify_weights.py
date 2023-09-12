@@ -81,10 +81,24 @@ def binarize_unit(states, layername, unit):
     return states
 
 
-def shuffle_unit(states, layername, unit):
+def shuffle_unit(states, layername, unit, mode='all'):
     unit_weights = states[layername][unit]
     unit_weights = torch.flatten(unit_weights)
-    unit_weights = unit_weights[torch.randperm(unit_weights.shape[0])]
+
+    if mode == 'all':
+        unit_weights = unit_weights[torch.randperm(unit_weights.shape[0])]
+    elif mode == 'pos':
+        print(unit_weights[:20])
+        pos_idx = torch.nonzero(unit_weights > 0, as_tuple=True)
+        unit_weights[pos_idx] = unit_weights[pos_idx[0][torch.randperm(pos_idx[0].shape[0])]]
+        print(unit_weights[:20])
+    elif mode == 'neg':
+        print(unit_weights[:20])
+        num_pos = torch.nonzero(unit_weights > 0).shape[0]
+        neg_idx = torch.nonzero(unit_weights < 0, as_tuple=True)
+        neg_idx = neg_idx[0][torch.randperm(neg_idx[0].shape[0])][:num_pos]
+        unit_weights[neg_idx] = unit_weights[neg_idx[torch.randperm(neg_idx.shape[0])]]
+        print(unit_weights[:20])
 
     states[layername][unit] = torch.reshape(unit_weights, states[layername][unit].shape)
 
