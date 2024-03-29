@@ -11,7 +11,7 @@ import numpy as np
 #   TODO
 #   Scale up to handle folders of images (path is a directory).
 
-def get_activations(extractor, x, module_name, neuron_coord=None, channel_id=None):
+def get_activations(extractor, x, module_name, neuron_coord=None, channel_id=None, use_center=False):
     if len(x.shape) == 3:
         x = torch.unsqueeze(x, 0)
 
@@ -23,12 +23,16 @@ def get_activations(extractor, x, module_name, neuron_coord=None, channel_id=Non
         flatten_acts=False
     )
 
-    activations = features
-    if channel_id is not None:
-        activations = features[:, channel_id]
+    if use_center:
+        neuron_coord = features.shape[-1] // 2
 
-        if neuron_coord is not None:
-            activations = features[:, channel_id, neuron_coord, neuron_coord]
+    activations = features
+
+    if neuron_coord is not None:
+        activations = activations[:, :, neuron_coord, neuron_coord]
+
+    if channel_id is not None:
+        activations = activations[:, channel_id]
 
     return activations
 

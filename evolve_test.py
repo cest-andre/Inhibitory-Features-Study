@@ -12,16 +12,17 @@ from torchvision import models, transforms
 # exit()
 sys.path.append(r'/home/andre/evolve-code')
 sys.path.append(r'/home/andre/evolve-code/circuit_toolkit')
+sys.path.append('/home/andrelongon/Documents/inhibition_code/jsputils')
 # print(sys.path)
 # exit()
 
-from ActMax_Optimizer_Dev.core.insilico_exps import ExperimentEvolution
 # from ActMax_Optimizer_Dev.core.Optimizers import CholeskyCMAES, ZOHA_Sphere_lr_euclid, Genetic, pycma_optimizer
+from circuit_toolkit.insilico_exps import ExperimentEvolution
 from circuit_toolkit.Optimizers import CholeskyCMAES
-from selectivity_codes.insilico_RF_save import get_center_pos_and_rf
-from selectivity_codes.utils import normalize
+from circuit_toolkit.insilico_rf_save import get_center_pos_and_rf
+from circuit_toolkit.selectivity_utils import normalize
 
-from modify_weights import clamp_ablate_unit
+from modify_weights import clamp_ablate_unit, increase_weights
 
 
 # un-comment to use our new one! 
@@ -35,6 +36,7 @@ parser.add_argument('--layer_name', type=str)
 parser.add_argument('--neuron_coord', type=int)
 parser.add_argument('--type', type=str, required=False)
 parser.add_argument('--ablate', action='store_true', default=False)
+parser.add_argument('--increase', action='store_true', default=False)
 parser.add_argument('--weight_name', type=str, required=False)
 args = parser.parse_args()
 
@@ -48,16 +50,19 @@ elif args.type == 'resnet18-untrained':
     states = torch.load("/home/andre/tuning_curves/untrained_resnet18/random_weights.pth")
 elif args.type == 'resnet18-robust':
     type_label = 'robust_'
-    states = torch.load("/home/andre/model_weights/resnet-18-l2-eps3.pt")
+    states = torch.load("/home/andrelongon/Documents/inhibition_code/weights/resnet-18-l2-eps3.pt")
 
-explabel = f"new_{args.network}_{type_label}{args.layer_name}"
+explabel = f"{args.network}_{type_label}{args.layer_name}"
 model_unit = (args.network, args.layer_name, args.neuron, args.neuron_coord, args.neuron_coord)
 
 savedir = None
 if args.ablate:
-    savedir = r"/home/andre/evolved_data_ablated"
+    savedir = r"/home/andrelongon/Documents/inhibition_code/evolved_data_ablated"
+#   For exc, increase negative weights by 10x.  For inh, increase positive weights by 10x.
+elif args.increase:
+    savedir = r"/home/andrelongon/Documents/inhibition_code/evolved_data_increase"
 else:
-    savedir = r"/home/andre/evolved_data"
+    savedir = r"/home/andrelongon/Documents/inhibition_code/evolved_data"
 
 savedir = os.path.join(savedir, explabel + f"_unit{model_unit[2]}")
 if not os.path.isdir(savedir):
@@ -91,6 +96,11 @@ for i in range(runs):
         Exp.CNNmodel.model.load_state_dict(
             clamp_ablate_unit(Exp.CNNmodel.model.state_dict(), args.weight_name, args.neuron, min=0, max=None)
         )
+    elif args.increase:
+        #   Increase all negative weights by factor.
+        Exp.CNNmodel.model.load_state_dict(
+            increase_weights(Exp.CNNmodel.model.state_dict(), args.weight_name, args.neuron, sign='n')
+        )
 
     if i == 0:
         cent_pos, corner, imgsize, Xlim, Ylim, gradAmpmap = get_center_pos_and_rf(
@@ -122,6 +132,10 @@ for i in range(runs):
     if args.ablate:
         Exp.CNNmodel.model.load_state_dict(
             clamp_ablate_unit(Exp.CNNmodel.model.state_dict(), args.weight_name, args.neuron, min=None, max=0)
+        )
+    elif args.increase:
+        Exp.CNNmodel.model.load_state_dict(
+            increase_weights(Exp.CNNmodel.model.state_dict(), args.weight_name, args.neuron, sign='p')
         )
 
     # if i == 0:

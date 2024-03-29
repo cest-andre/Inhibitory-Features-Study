@@ -9,15 +9,15 @@ import torchvision
 from torchvision import models, transforms
 from modify_weights import clamp_ablate_unit, random_ablate_unit, binarize_unit
 sys.path.append(r'/home/andre/evolve-code/circuit_toolkit')
-sys.path.append(r'/home/andre/evolve-code/selectivity_codes')
+# sys.path.append(r'/home/andre/evolve-code/selectivity_codes')
 from circuit_toolkit.dataset_utils import create_imagenet_valid_dataset
-from selectivity import batch_selectivity
-from insilico_RF_save import get_center_pos_and_rf
+from circuit_toolkit.selectivity import batch_selectivity
+from circuit_toolkit.insilico_rf_save import get_center_pos_and_rf
 from transplant import get_activations
 
 
 def validate_tuning_curve_thingsvision(extractor, module_name, selected_neuron=None, neuron_coord=None, subset=None, sort_acts=True):
-    batch_size = 256
+    batch_size = 1024
     IMAGE_SIZE = 224
     # specify ImageNet mean and standard deviation
     MEAN = [0.485, 0.456, 0.406]
@@ -31,7 +31,7 @@ def validate_tuning_curve_thingsvision(extractor, module_name, selected_neuron=N
     norm_transform = transforms.Normalize(mean=MEAN, std=STD)
 
     # create a dataset object for the ImageNet dataset
-    imnet_folder = r"/home/andre/data/imagenet/val/valid"
+    imnet_folder = r"/home/andrelongon/Documents/data/imagenet/val"
     imagenet_data = torchvision.datasets.ImageFolder(imnet_folder, transform=transform)
     #   Shuffle due to taking subset.
     torch.manual_seed(0)
@@ -57,7 +57,7 @@ def validate_tuning_curve_thingsvision(extractor, module_name, selected_neuron=N
         im_count += inputs.shape[0]
 
         norm_inputs = norm_transform(inputs)
-        acts = get_activations(extractor, norm_inputs, module_name, neuron_coord, selected_neuron)
+        acts = get_activations(extractor, norm_inputs, module_name, neuron_coord, selected_neuron, use_center=True)
         activations.append(acts)
         # print(np.min(acts))
         # if extractor is not None:
@@ -66,7 +66,6 @@ def validate_tuning_curve_thingsvision(extractor, module_name, selected_neuron=N
         inputs = inputs.cpu()
         for input in inputs:
             all_images.append(input)
-
 
     all_ord_list = np.arange(im_count).tolist()
     unrolled_act = [num for sublist in activations for num in sublist]
@@ -186,10 +185,10 @@ def validate(model):
     norm_transformation = transforms.Normalize(mean=MEAN, std=STD)
 
     # create a dataset object for the ImageNet dataset
-    imnet_folder = r"/home/andre/data/imagenet/val/valid"
+    imnet_folder = r"/home/andrelongon/Documents/data/imagenet/val"
     imagenet_data = torchvision.datasets.ImageFolder(imnet_folder, transform=transform)
     dataloader = torch.utils.data.DataLoader(imagenet_data, batch_size=batch_size, shuffle=False)
-    print(len(dataloader))
+    # print(len(dataloader))
 
     correct = 0
     total = 0
@@ -201,7 +200,7 @@ def validate(model):
         outputs = model(norm_inputs)
 
         # # Compute the top-5 predictions
-        _, predicted = torch.topk(outputs, k=5, dim=1)
+        _, predicted = torch.topk(outputs, k=1, dim=1)
 
         # # Check if the true label is in the top-5 predictions
         correct += (predicted == labels.unsqueeze(1)).any(dim=1).sum().item()
@@ -219,7 +218,7 @@ if __name__ == '__main__':
     parser.add_argument('--network', type=str)
     args = parser.parse_args()
 
-    batch_size = 256
+    batch_size = 1024
     IMAGE_SIZE = 224
 
     model = None
@@ -243,25 +242,25 @@ if __name__ == '__main__':
     original_states = copy.deepcopy(model.state_dict())
 
     for i in units:
-        # model.load_state_dict(clamp_ablate_unit(model.state_dict(), "features.10.weight", i, min=0, max=0, bias_name='features.10.bias'))
-        # all_ablate_accs.append(validate(model))
-        # model.load_state_dict(original_states)
-        #
-        # model.load_state_dict(clamp_ablate_unit(model.state_dict(), "features.10.weight", i, min=0, max=None, bias_name='features.10.bias'))
-        # inh_ablate_accs.append(validate(model))
-        # model.load_state_dict(original_states)
+        model.load_state_dict(clamp_ablate_unit(model.state_dict(), "layer4.1.conv2.weight", i, min=0, max=0))
+        all_ablate_accs.append(validate(model))
+        model.load_state_dict(original_states)
+        
+        model.load_state_dict(clamp_ablate_unit(model.state_dict(), "layer4.1.conv2.weight", i, min=0, max=None))
+        inh_ablate_accs.append(validate(model))
+        model.load_state_dict(original_states)
 
         # model.load_state_dict(random_ablate_unit(model.state_dict(), "features.10.weight", i, bias_name='features.10.bias'))
         # random_ablate_accs.append(validate(model))
         # model.load_state_dict(original_states)
 
         #   Increase bias to effectively shift up tuning curve without disturbing rank order.
-        model.load_state_dict(
-            clamp_ablate_unit(model.state_dict(), "features.10.weight", i, min=0, max=None, bias_name='features.10.bias')
-        )
-        model.state_dict()['features.10.bias'][i] = -10
-        increased_bias_accs.append(validate(model))
-        model.load_state_dict(original_states)
+        # model.load_state_dict(
+        #     clamp_ablate_unit(model.state_dict(), "layer4.1.conv2.weight", i, min=0, max=None, bias_name='features.10.bias')
+        # )
+        # model.state_dict()['features.10.bias'][i] = -10
+        # increased_bias_accs.append(validate(model, batch_size))
+        # model.load_state_dict(original_states)
 
         # model.load_state_dict(binarize_unit(model.state_dict(), "features.10.weight", i))
         # increased_bias_accs.append(validate(model))
@@ -273,19 +272,21 @@ if __name__ == '__main__':
     # plt.savefig(f'/home/andre/imagenet_val_data/{args.network}_features.10.weight_ablate_imnet_val_accuracy.png')
     # plt.close()
 
-    # np.save(
-    #     f'/home/andre/imagenet_val_data/{args.network}_layer1.0.conv2.weight_all_ablate_imnet_val_accuracy.npy',
-    #     np.array(all_ablate_accs)
-    # )
+    np.save(
+        f'/home/andrelongon/Documents/inhibition_code/imagenet_val_data/{args.network}_layer4.1.conv2.weight_all_ablate_imnet_val_accuracy.npy',
+        np.array(all_ablate_accs)
+    )
+    print(np.mean(np.array(all_ablate_accs)))
     # np.save(
     #     f'/home/andre/imagenet_val_data/{args.network}_features.10.weight_random_ablate_imnet_val_accuracy.npy',
     #     np.array(random_ablate_accs)
     # )
-    # np.save(
-    #     f'/home/andre/imagenet_val_data/{args.network}_layer1.0.conv2.weight_inh_ablate_imnet_val_accuracy.npy',
-    #     np.array(inh_ablate_accs)
-    # )
     np.save(
-        f'/home/andre/imagenet_val_data/{args.network}_features.10.increased_bias_imnet_val_accuracy.npy',
-        np.array(increased_bias_accs)
+        f'/home/andrelongon/Documents/inhibition_code/imagenet_val_data/{args.network}_layer4.1.conv2.weight_inh_ablate_imnet_val_accuracy.npy',
+        np.array(inh_ablate_accs)
     )
+    print(np.mean(np.array(inh_ablate_accs)))
+    # np.save(
+    #     f'/home/andre/imagenet_val_data/{args.network}_features.10.increased_bias_imnet_val_accuracy.npy',
+    #     np.array(increased_bias_accs)
+    # )

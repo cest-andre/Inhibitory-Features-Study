@@ -4,7 +4,16 @@ import torch
 from PIL import Image
 import matplotlib.pyplot as plt
 from torchvision import models
-from scipy.stats import spearmanr, f_oneway, ttest_ind
+from scipy.stats import spearmanr, pearsonr, f_oneway, ttest_ind
+
+import sys
+sys.path.append('/home/andrelongon/Documents/inhibition_code/jsputils')
+
+from train_nonneg_weights import AlexNet
+
+
+def normalize(x):
+    return (x - np.min(x)) / (np.max(x) - np.min(x))
 
 
 def pair_plot_intact_abl_norms(layers, network):
@@ -404,21 +413,51 @@ def pair_plot_ranks(selected_layer, network):
 
 
 def plot_weight_histos():
-    bins = [-0.1  , -0.075, -0.05 , -0.025,  0.   ,  0.025,  0.05 ,  0.075, 0.1]
-    model = models.resnet18(False)
-    state_keys = [
-        'layer1.1.conv2.weight', 'layer2.1.conv2.weight', 'layer3.1.conv2.weight', 'layer4.1.conv2.weight'
-    ]
+    # model = AlexNet()
+    # model.load_state_dict(torch.load("/home/andrelongon/Documents/inhibition_code/weights/cifar_alexnet_nonneg_3_batchnorm.pth"))
 
-    model.load_state_dict(torch.load("/home/andre/model_weights/resnet-18-l2-eps3.pt"))
+    # model = models.vgg16(True)
+    # model, transform = torch.hub.load("harvard-visionlab/open_ipcl", "alexnetgn_ipcl_ref06_diet_imagenet")
+    #  keys for barlow:  'backbone.1.0.weight', 'backbone.2.0.weight', 'backbone.3.0.weight', 'backbone.4.0.weight'
+    # model = torch.load('/home/andrelongon/Documents/inhibition_code/jsputils/alexnet-barlow-twins.pth')
+    # model = models.alexnet(True)
 
-    f, axarr = plt.subplots(1, 4, layout='tight', figsize=(8, 5))
-    f.suptitle("Weight Histogram Across Layers\nRobust ResNet18 Conv2 for 1.1, 2.1, 3.1, 4.1")
+    from thingsvision import get_extractor
+
+    extractor = get_extractor(
+        model_name='cornet-s',
+        source='custom',
+        device='cpu',
+        pretrained=True
+    )
+    model = extractor.model
+
+    states = model.state_dict()
+
+    # model.load_state_dict(torch.load("/home/andre/model_weights/resnet-18-l2-eps3.pt"))
+
+    #   Keys: 'conv2_2.weight', 'conv3_2.weight', 'conv4_2.weight', 'conv5_2.weight'
+    # states = torch.load('/home/andrelongon/Documents/inhibition_code/vgg_face_dag.pth')
+
+    # state_keys = [
+    #     'layer1.1.conv2.weight', 'layer2.1.conv2.weight', 'layer3.1.conv2.weight', 'layer4.1.conv2.weight'
+    # ]
+
+    # state_keys = ['features.3.weight', 'features.7.weight', 'features.9.weight', 'features.11.weight']
+
+    state_keys = ['V1.conv2.weight', 'V2.conv3.weight', 'V4.conv3.weight', 'IT.conv3.weight']
+
+    f, axarr = plt.subplots(1, len(state_keys), layout='tight', figsize=(12, 5))
+    f.suptitle("Weight Histogram Across Layers\nCORNet-S")
+    # f.suptitle("Weight Histogram Across Layers\nCIFAR AlexNet with BatchNorm Conv 3 Constrained\nTop 1: 74%")
     # max = 0
 
     for i in range(len(state_keys)):
-        weights = torch.flatten(model.state_dict()[state_keys[i]])
+        weights = torch.flatten(states[state_keys[i]])
+        bins = [-0.1  , -0.075, -0.05 , -0.025,  0.   ,  0.025,  0.05 ,  0.075, 0.1]
+
         hist = axarr[i].hist(weights, bins=bins)[0]
+        axarr[i].set_title(state_keys[i])
         print(hist / np.sum(hist))
 
     #     if np.max(hist) > max:
@@ -427,7 +466,7 @@ def plot_weight_histos():
     # for i in range(4):
     #     axarr[i].set_ylim(bottom=0, top=max)
 
-    # plt.savefig("/home/andre/weight_histos/robust_resnet_x.1.conv2.png")
+    plt.savefig("/home/andrelongon/Documents/inhibition_code/plots/weight_histos/cornet-s.png")
 
 
 def make_stimuli_grid():
@@ -536,7 +575,7 @@ def plot_ranks(selected_layer):
     plt.close()
 
 
-def tuning_curve_plot(layer, neuron):
+def max_projected_curve_plot(layer, neuron):
     # Find indices in all_ord_list where all_ord_sorted[0:9] occurs in abl_all_ord_sorted.
     #   Index of abl_all_ord_sorted where it equals all_ord_sorted[0:9].  These indices
     #   can then be deleted from abl_all_act_list.
@@ -572,4 +611,171 @@ def tuning_curve_plot(layer, neuron):
     plt.legend(loc="upper right")
     plt.savefig(os.path.join('/home/andre/tuning_curves/alexnet/inh_abl', 'neg_abl_tuning_curve_l%d_n%d_new.png'
                              % (layer, neuron)))
+    plt.close()
+
+
+def curve_corr_plot(same_corrs, all_exc_mean, all_inh_mean, all_exc_err, all_inh_err):
+    plt.scatter(np.arange(same_corrs.shape[0]), same_corrs, color='b')#, label="Same Neuron Opposite")
+    # plt.errorbar(
+    #     np.arange(all_exc_mean.shape[0]), all_exc_mean, all_exc_err, fmt='go',
+    #     label="Other Intact Neuron Mean"
+    # )
+    # plt.errorbar(
+    #     np.arange(all_inh_mean.shape[0]), all_inh_mean, all_inh_err, fmt='ro',
+    #     label="Other Neuron Inh Mean"
+    # )
+    plt.xlabel("Neuron")
+    plt.ylabel("Pearson R")
+    plt.title(f"Intact vs Neg-Only Tuning Curve Correlation\nRobust ResNet18 layer4.1.Conv2dconv2 - First 64 Neurons")
+    # plt.legend(loc="lower right")
+    plt.savefig("/home/andrelongon/Documents/inhibition_code/plots/intact_v_negative-only/intact_v_no_curve_corr_robust_resnet18_layer4.1.Conv2dconv2_first_64.png")
+    plt.close()
+
+
+def tuning_curve_plot(layer, neuron):
+    # curve = np.load(
+    #     f"/home/andrelongon/Documents/inhibition_code/tuning_curves/alexnet/{layer}/exc_abl/{layer}_unit{neuron}_exc_abl_all_act_list.npy"
+    # )
+
+    # all_ord_list = np.arange(curve.shape[0]).tolist()
+
+    # plt.scatter(all_ord_list, curve, color='r')
+    # plt.xlabel("Image")
+    # plt.ylabel("Activation")
+    # plt.title(f"Neg-Only Tuning Curve\nTrained AlexNet Layer {layer} Neuron {neuron}")
+    # plt.savefig(f'/home/andrelongon/Documents/inhibition_code/plots/negative-only_curves/no_curve_trained_alexnet_{layer}_unit{neuron}.png')
+    # plt.close()
+
+    intact_curve = np.load(
+        f"/home/andrelongon/Documents/inhibition_code/tuning_curves/resnet18/{layer}/intact/{layer}_unit{neuron}_intact_all_act_list.npy"
+    )
+    intact_order = np.load(f"/home/andrelongon/Documents/inhibition_code/tuning_curves/resnet18/{layer}/intact/{layer}_unit{neuron}_intact_all_ord_sorted.npy")
+
+    po_curve = np.load(
+        f"/home/andrelongon/Documents/inhibition_code/tuning_curves/resnet18/{layer}/inh_abl/{layer}_unit{neuron}_inh_abl_unrolled_act.npy"
+    )
+
+    #   Obtain intact pos-only subset (every 100 ranks)
+    # intact_curve = intact_curve[np.nonzero(intact_curve > 0)]
+    # intact_order = intact_order[:intact_curve.shape[0]]
+    # intact_order = intact_order[::100]
+    # intact_curve = intact_curve[::100]
+
+    po_curve = po_curve[intact_order]
+
+    f_stat, p_val = f_oneway(intact_curve, po_curve)
+    print(f"ANOVA results on subset: F Score={f_stat}, p={p_val}")
+
+    all_ord_list = np.arange(po_curve.shape[0]).tolist()
+
+    fig = plt.figure(figsize=(12,5))
+    ax = fig.subplots()
+
+    ax.scatter(all_ord_list, po_curve, color='g', label="Positive Only")
+    ax.scatter(all_ord_list, intact_curve, color='b', label="Intact")
+    ax.set_xlabel("Image")
+    ax.set_ylabel("Activation")
+    ax.legend(loc="lower left")
+    ax.set_title(f"Intact and Pos-Only Tuning Curve\nTrained ResNet18 Layer {layer} Neuron {neuron}")
+    plt.savefig(f'/home/andrelongon/Documents/inhibition_code/plots/positive-only_curves/intact_and_po_curve_trained_resnet18_{layer}_unit{neuron}.png', dpi=256)
+    plt.close()
+
+
+def tuning_cross_plot(layer, first_neuron, second_neuron):
+    first_curve = np.load(
+        f"/home/andrelongon/Documents/inhibition_code/tuning_curves/alexnet/{layer}/inh_abl/{layer}_unit{first_neuron}_inh_abl_unrolled_act.npy"
+    )
+    # first_curve = -1 * first_curve
+    first_curve = normalize(first_curve)
+
+    second_curve = np.load(
+        f"/home/andrelongon/Documents/inhibition_code/tuning_curves/alexnet/{layer}/inh_abl/{layer}_unit{second_neuron}_inh_abl_unrolled_act.npy"
+    )
+    # second_curve = -1 * second_curve
+    second_curve = normalize(second_curve)
+
+    r, p_val = pearsonr(first_curve, second_curve)
+    print(f"Correlation results: r={r}, p={p_val}")
+
+    fig = plt.figure(figsize=(8,5))
+    ax = fig.subplots()
+
+    ax.scatter(first_curve, second_curve, color='g')
+    ax.set_xlabel(f"Neuron {first_neuron} Activation")
+    ax.set_ylabel(f"Neuron {second_neuron} Activation")
+    ax.set_title(f"Pos-Only Activations\nTrained AlexNet Layer {layer} Neurons {first_neuron} and {second_neuron}")
+    plt.savefig(f'/home/andrelongon/Documents/inhibition_code/plots/curve_cross_plot/po_curves_trained_alexnet_{layer}_units{first_neuron}x{second_neuron}.png')
+    plt.close()
+
+
+def norm_curve_plot(layer, neuron):
+    po_curve = np.load(
+        f"/home/andrelongon/Documents/inhibition_code/tuning_curves/alexnet/{layer}/inh_abl/{layer}_unit{neuron}_inh_abl_all_act_list.npy"
+    )
+    
+    no_curve = np.load(
+        f"/home/andrelongon/Documents/inhibition_code/tuning_curves/alexnet/{layer}/exc_abl/{layer}_unit{neuron}_exc_abl_unrolled_act.npy"
+    )
+
+    norm_curve = po_curve + (-1 * no_curve)
+
+    all_ord_list = np.arange(po_curve.shape[0]).tolist()
+    norm_curve, all_ord_sorted = zip(*sorted(zip(norm_curve, all_ord_list), reverse=True))
+
+    plt.scatter(all_ord_list, po_curve, color='b')
+    plt.xlabel("Image")
+    plt.ylabel("Activation")
+    plt.title(f"Norm Tuning Curve - Trained AlexNet Layer {layer} Neuron {neuron}")
+    plt.savefig(f'/home/andrelongon/Documents/inhibition_code/plots/norm_curves/norm_curve_trained_alexnet_{layer}_unit{neuron}.png')
+    plt.close()
+
+
+def input_proto_sim_plot(min_max_d, rand_d, layer):
+    f_stat, p_val = f_oneway(np.array(min_max_d), np.array(rand_d))
+    print(f"ANOVA results: F Score={f_stat}, p={p_val}")
+
+    fig = plt.figure(figsize=(8,5))
+    ax = fig.subplots()
+
+    ax.scatter(np.arange(len(min_max_d)), np.array(min_max_d), color='b', label="Min Max")
+    ax.scatter(np.arange(len(rand_d)), np.array(rand_d), color='y', label="Random")
+    ax.set_xlabel("Neuron")
+    ax.set_ylabel("LPIPS (AlexNet Backbone)")
+    ax.legend(loc="lower right")
+    ax.set_title(f"Max Min Channel Weight Prototype Similarity\nTrained ResNet18 Layer {layer}")
+
+    plt.savefig(f'/home/andrelongon/Documents/inhibition_code/plots/max_channel_proto_sim/trained_resnet18_{layer}.png')
+    plt.close()
+
+
+def proto_anti_sim_plot(same_d, rand_d, layer):
+    f_stat, p_val = f_oneway(np.array(same_d), np.array(rand_d))
+    print(f"ANOVA results: F Score={f_stat}, p={p_val}")
+
+    fig = plt.figure(figsize=(8,5))
+    ax = fig.subplots()
+
+    ax.scatter(np.arange(len(same_d)), np.array(same_d), color='b', label="Same")
+    ax.scatter(np.arange(len(rand_d)), np.array(rand_d), color='y', label="Random")
+    ax.set_xlabel("Neuron")
+    ax.set_ylabel("LPIPS (AlexNet Backbone)")
+    ax.legend(loc="lower right")
+    ax.set_title(f"Ablated Prototype Antiproto Similarity\nTrained AlexNet Layer {layer}")
+
+    plt.savefig(f'/home/andrelongon/Documents/inhibition_code/plots/proto_antiproto_sim/ablated_trained_alexnet_{layer}.png', dpi=128)
+    plt.close()
+
+
+def top_bot_layer_ranks(avg_top_ranks, avg_top_error, avg_bot_ranks, avg_bot_error, layer_name):
+    fig = plt.figure(figsize=(8,5))
+    ax = fig.subplots()
+
+    ax.errorbar(np.arange(avg_top_ranks.shape[0]), avg_top_ranks, avg_top_error, fmt='go', label="Top Image")
+    ax.errorbar(np.arange(avg_bot_ranks.shape[0]), avg_bot_ranks, avg_bot_error, fmt='ro', label="Bot Image")
+    ax.set_xlabel("Neuron")
+    ax.set_ylabel("Rank")
+    ax.invert_yaxis()
+    ax.legend(loc="upper right")
+    ax.set_title(f"Trained AlexNet Layer {layer_name} Ranks")
+    plt.savefig(f'/home/andrelongon/Documents/inhibition_code/plots/layer_ranks/trained_alexnet_{layer_name}.png')
     plt.close()

@@ -20,8 +20,11 @@ def ablate_all_inhibs(states):
     return states
 
 
-def ablate_inhib_layer(states, layername):
-    states[layername] = torch.clamp(states[layername], min=0)
+def clamp_ablate_layer(states, layername, min=None, max=None, bias_name=None):
+    states[layername] = torch.clamp(states[layername], min=min, max=max)
+
+    if bias_name is not None:
+        states[bias_name] = 0
 
     return states
 
@@ -99,6 +102,40 @@ def shuffle_unit(states, layername, unit, mode='all'):
         neg_idx = neg_idx[0][torch.randperm(neg_idx[0].shape[0])][:num_pos]
         unit_weights[neg_idx] = unit_weights[neg_idx[torch.randperm(neg_idx.shape[0])]]
         print(unit_weights[:20])
+
+    states[layername][unit] = torch.reshape(unit_weights, states[layername][unit].shape)
+
+    return states
+
+
+def rescale_weights(states, target_states, layer_name):
+    weights = states[layer_name]
+    target_weights = target_states[layer_name]
+
+    for i in range(target_weights.shape[0]):
+        target_min = torch.min(target_weights[i])
+        target_max = torch.max(target_weights[i])
+
+        min_weight = torch.min(weights[i])
+        max_weight = torch.max(weights[i])
+
+        weights[i] = ((target_max - target_min) * (weights[i] - min_weight) / (max_weight - min_weight)) + target_min
+
+    states[layer_name] = weights
+
+    return states
+
+
+def increase_weights(states, layername, unit, sign, factor=10):
+    unit_weights = states[layername][unit]
+    unit_weights = torch.flatten(unit_weights)
+
+    if sign == 'p':
+        idx = torch.nonzero(unit_weights > 0, as_tuple=True)
+    elif sign == 'n':
+        idx = torch.nonzero(unit_weights < 0, as_tuple=True)
+
+    unit_weights[idx] = factor * unit_weights[idx]
 
     states[layername][unit] = torch.reshape(unit_weights, states[layername][unit].shape)
 
