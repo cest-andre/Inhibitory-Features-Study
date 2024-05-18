@@ -3,7 +3,7 @@ import torchvision
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import transforms
-from thingsvision import get_extractor
+from thingsvision import get_extractor, get_extractor_from_model
 import functools
 import sys
 import argparse
@@ -13,6 +13,7 @@ import numpy as np
 
 from transplant import get_activations
 from modify_weights import rescale_weights
+from train_imnet import AlexNet
 
 sys.path.append(r'/home/andrelongon/Documents/inhibition_code/vision')
 from brainscore_vision.model_helpers.activations.pytorch import load_preprocess_images
@@ -34,9 +35,22 @@ extractor = get_extractor(
     model_name=args.network,
     source=source_name,
     device='cuda',
-    pretrained=True,
+    pretrained=False,
     model_parameters=model_params
 )
+
+
+#   Create my alexnet
+# model = AlexNet().cuda()
+
+states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/{args.network}_untrained.pth")
+# states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/resnet18_layer4.1.conv2_baseline_weightdecay_1ep.pth")
+extractor.model.load_state_dict(states)
+del states
+
+# extractor = get_extractor_from_model(model=model, device='cuda', backend='pt')
+#   NOTE:  untrained weights to later train without overlap and compare brainscores.
+# torch.save(extractor.model.state_dict(), f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/{args.network}_untrained.pth")
 
 # states = torch.hub.load('facebookresearch/WSL-Images', 'resnext101_32x8d_wsl').state_dict()
 # model_label = '14'
@@ -99,10 +113,14 @@ imagenet_data = torchvision.datasets.ImageFolder(imnet_folder, transform=transfo
 torch.manual_seed(0)
 dataloader = torch.utils.data.DataLoader(imagenet_data, batch_size=batch_size, shuffle=True, drop_last=False)
 
-supervised_train = False
+supervised_train = True
 val = True
-# criterion = nn.CrossEntropyLoss().cuda()
-# optimizer = optim.RAdam(extractor.model.parameters())
+criterion = nn.CrossEntropyLoss().cuda()
+optimizer = optim.AdamW(extractor.model.parameters())
+
+# states = torch.load("/media/andrelongon/DATA/imnet_opt_states/overlap_finetune/resnet18_layer4.1.conv2_baseline_weightdecay_1ep.pth")
+# optimizer.load_state_dict(states)
+# del states
 
 # num_batches = 256
 # if subset is not None:
@@ -125,32 +143,39 @@ val = True
 #   TODO:  Is a double pass each epoch necessary?  Maybe just for the first batch, but after, can just
 #          keep a single distance array and update it each batch.
 
-states = torch.load(f"/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/alexnet_features.10_1_1ep.pth")
-extractor.model.load_state_dict(states)
+# states = torch.load(f"/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/myalexnet_features.16_1_1ep.pth")
+# states = torch.load("/media/andrelongon/DATA/imnet_weights/overlap_finetune/myalexnet_features.16_8_1ep.pth")
+# extractor.model.load_state_dict(states)
 
 metric = lpips.LPIPS(net='alex').cuda()
 
-epochs = 2
-top_ch = 16
+epochs = 3
+top_ch = 3
 distances = []
 strikes = 0
+offset = None
 
-for e in range(epochs):
+for e in range(0, epochs):
     for j, (inputs, labels) in enumerate(dataloader):
+        inputs = inputs.cuda()
+        labels = labels.cuda()
+
+        norm_inputs = norm_transform(inputs)
+
         if supervised_train:
-            inputs = inputs.cuda()
-            labels = labels.cuda()
-
-            norm_inputs = norm_transform(inputs)
-
             optimizer.zero_grad()
 
-            outputs = extractor.model(inputs)
+            # old_w = torch.clone(extractor.model.state_dict()[args.layer_name + '.weight'])
+
+            outputs = extractor.model(norm_inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
 
-            continue
+            # continue
+
+            # new_w = torch.clone(extractor.model.state_dict()[args.layer_name + '.weight'])
+            # offset = torch.mean(torch.abs(old_w - new_w)) / 10
 
         states = extractor.model.state_dict()
         layer_weights = torch.clone(states[args.layer_name + '.weight'])
@@ -160,22 +185,19 @@ for e in range(epochs):
         # if j == num_batches:
         #     break
 
-        inputs = inputs.cuda()
-
-        norm_inputs = norm_transform(inputs)
         acts = get_activations(extractor, norm_inputs, args.layer_name, use_center=True)
         acts = torch.transpose(torch.tensor(acts).cpu(), 0, 1)
 
         img_idx = torch.argsort(acts)
 
-        top_ch = np.random.randint(3, high=65)
+        top_ch = np.random.randint(3, high=33)
         
         if True:
         # if len(distances) == 0:
             distances = []
             for n in range(img_idx.shape[0]):
-                top_imgs = norm_inputs[torch.flip(img_idx[n][-3:], (0,))]
-                bot_imgs = norm_inputs[img_idx[n][:3]]
+                top_imgs = norm_inputs[torch.flip(img_idx[n][-9:], (0,))]
+                bot_imgs = norm_inputs[img_idx[n][:9]]
 
                 dist = metric(top_imgs, bot_imgs)
                 distances.append(torch.mean(dist).cpu().detach().numpy())
@@ -203,17 +225,17 @@ for e in range(epochs):
         increase_count = 0
 
         for n in range(img_idx.shape[0]):
-            top_imgs = norm_inputs[torch.flip(img_idx[n][-3:], (0,))]
-            bot_imgs = norm_inputs[img_idx[n][:3]]
+            top_imgs = norm_inputs[torch.flip(img_idx[n][-9:], (0,))]
+            bot_imgs = norm_inputs[img_idx[n][:9]]
 
             dist = metric(top_imgs, bot_imgs)
             dist = torch.mean(dist).cpu().detach().numpy()
 
             channel_idx = torch.argsort(torch.sum(layer_weights[n], (1, 2)))
 
-            if dist < distances[n]:
-                layer_weights[n, channel_idx[:top_ch]] *= 1.1
-                layer_weights[n, channel_idx[-top_ch:]] *= 1.1
+            if dist > distances[n]:
+                layer_weights[n, channel_idx[:top_ch]] *= 1.001 #(1 + offset)
+                layer_weights[n, channel_idx[-top_ch:]] *= 1.001 #(1 + offset)
 
                 # layer_weights[n, channel_idx[:top_ch]] -= 0.001
                 # layer_weights[n, channel_idx[-top_ch:]] += 0.001
@@ -222,9 +244,9 @@ for e in range(epochs):
 
                 increase_count += 1
             else:
-                # pass
-                layer_weights[n, channel_idx[:top_ch]] *= 0.99
-                layer_weights[n, channel_idx[-top_ch:]] *= 0.99
+                pass
+                # layer_weights[n, channel_idx[:top_ch]] *= 0.999 #(1 - offset)
+                # layer_weights[n, channel_idx[-top_ch:]] *= 0.999 #(1 - offset)
 
                 # layer_weights[n, channel_idx[:top_ch]] += 0.001
                 # layer_weights[n, channel_idx[-top_ch:]] -= 0.001
@@ -244,52 +266,55 @@ for e in range(epochs):
         states[args.layer_name + '.weight'] = layer_weights
         extractor.model.load_state_dict(states)
 
+    model_label = f'3_inverse_{e+1}ep'
+    torch.save(extractor.model.state_dict(), f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/{args.network}_{args.layer_name}_{model_label}.pth")
+    torch.save(optimizer.state_dict(), f"/media/andrelongon/DATA/imnet_opt_states/overlap_finetune/{args.network}_{args.layer_name}_{model_label}.pth")
 
-if val:
-    # states = torch.load("/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/resnet18_layer4.0.conv1_6_1ep.pth")
+    if val:
+        # states = torch.load("/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/resnet18_layer4.0.conv1_6_1ep.pth")
 
-    #   TODO:  Rescale based on each neuron's min max weight from pre-finetuned state.
-    # states = rescale_weights(states, extractor.model.state_dict(), 'layer4.0.conv1.weight')
-    # extractor.model.load_state_dict(states)
+        #   TODO:  Rescale based on each neuron's min max weight from pre-finetuned state.
+        # states = rescale_weights(states, extractor.model.state_dict(), 'layer4.0.conv1.weight')
+        # extractor.model.load_state_dict(states)
 
-    # layer_weights = extractor.model.state_dict()['layer4.0.conv1.weight']
-    # layer_weights = torch.flatten(layer_weights, start_dim=1, end_dim=-1)
-    # print(torch.min(layer_weights, 0)[0][:10])
-    # print(torch.max(layer_weights, 0)[0][:10])
+        # layer_weights = extractor.model.state_dict()['layer4.0.conv1.weight']
+        # layer_weights = torch.flatten(layer_weights, start_dim=1, end_dim=-1)
+        # print(torch.min(layer_weights, 0)[0][:10])
+        # print(torch.max(layer_weights, 0)[0][:10])
+        # exit()
+
+        imnet_val_folder = r"/media/andrelongon/DATA/imagenet/val"
+        imnet_val_data = torchvision.datasets.ImageFolder(imnet_val_folder, transform=transform)
+        torch.manual_seed(0)
+        val_loader = torch.utils.data.DataLoader(imnet_val_data, batch_size=batch_size, shuffle=True, drop_last=False)
+
+        top1_correct = 0
+        top5_correct = 0
+        total = 0
+        with torch.no_grad():
+            for data in val_loader:
+                images, labels = data
+                images, labels = images.cuda(), labels.cuda()
+                images = norm_transform(images)
+                # calculate outputs by running images through the network
+                outputs = extractor.model(images)
+                # the class with the highest energy is what we choose as prediction
+                _, top1_predicted = torch.topk(outputs, k=1, dim=1)
+                _, top5_predicted = torch.topk(outputs, k=5, dim=1)
+                
+                top1_correct += (top1_predicted == labels.unsqueeze(1)).any(dim=1).sum().item()
+                top5_correct += (top5_predicted == labels.unsqueeze(1)).any(dim=1).sum().item()
+                total += labels.size(0)
+
+        print(f'Imnet val top 1: {100 * top1_correct // total} %')
+        print(f'Imnet val top 5: {100 * top5_correct // total} %')
+
     # exit()
 
-    imnet_val_folder = r"/home/andrelongon/Documents/data/imagenet/val"
-    imnet_val_data = torchvision.datasets.ImageFolder(imnet_val_folder, transform=transform)
-    torch.manual_seed(0)
-    val_loader = torch.utils.data.DataLoader(imnet_val_data, batch_size=batch_size, shuffle=True, drop_last=False)
+    preprocessing = functools.partial(load_preprocess_images, image_size=224)
+    activations_model = PytorchWrapper(identifier=f'{args.network}-{args.layer_name}-post_finetune_{model_label}', model=extractor.model, preprocessing=preprocessing)
+    activations_model.image_size = 224
 
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for data in val_loader:
-            images, labels = data
-            images, labels = images.cuda(), labels.cuda()
-            images = norm_transform(images)
-            # calculate outputs by running images through the network
-            outputs = extractor.model(images)
-            # the class with the highest energy is what we choose as prediction
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-    print(f'Imnet val top 1: {100 * correct // total} %')
-
-
-# exit()
-
-
-model_label = '1_3ep'
-torch.save(extractor.model.state_dict(), f"/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/{args.network}_{args.layer_name}_{model_label}.pth")
-
-preprocessing = functools.partial(load_preprocess_images, image_size=224)
-activations_model = PytorchWrapper(identifier=f'{args.network}-{args.layer_name}-post_finetune_{model_label}', model=extractor.model, preprocessing=preprocessing)
-activations_model.image_size = 224
-
-model_registry[f'{args.network}-{args.layer_name}-post_finetune_{model_label}'] = lambda: ModelCommitment(identifier=f'{args.network}-{args.layer_name}-post_finetune_{model_label}', activations_model=activations_model, layers=[args.layer_name])
-it_score = score(model_identifier=f'{args.network}-{args.layer_name}-post_finetune_{model_label}', benchmark_identifier='MajajHong2015public.IT-pls')#, model=model)
-print(f'Score post_finetune:  {it_score}')
+    model_registry[f'{args.network}-{args.layer_name}-post_finetune_{model_label}'] = lambda: ModelCommitment(identifier=f'{args.network}-{args.layer_name}-post_finetune_{model_label}', activations_model=activations_model, layers=[args.layer_name])
+    it_score = score(model_identifier=f'{args.network}-{args.layer_name}-post_finetune_{model_label}', benchmark_identifier='MajajHong2015public.IT-pls')#, model=model)
+    print(f'Score post_finetune:  {it_score}')

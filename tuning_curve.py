@@ -9,7 +9,7 @@ import torchvision
 from torchvision import models, transforms
 import matplotlib.pyplot as plt
 import numpy as np
-from thingsvision import get_extractor
+from thingsvision import get_extractor, get_extractor_from_model
 from PIL import Image
 
 from circuit_toolkit.insilico_rf_save import get_center_pos_and_rf
@@ -17,7 +17,7 @@ from circuit_toolkit.selectivity_utils import normalize, saveTopN, Sobel
 from circuit_toolkit.selectivity import batch_selectivity
 # from scatterplot import simple_scattplot
 from imnet_val import validate_tuning_curve, validate_tuning_curve_thingsvision
-
+from train_imnet import AlexNet
 from modify_weights import clamp_ablate_unit, clamp_ablate_layer, random_ablate_unit, channel_random_ablate_unit, binarize_unit
 from transplant import get_activations
 
@@ -545,15 +545,17 @@ if __name__ == '__main__':
     source_name = 'custom' if model_name == 'cornet-s' else 'torchvision'
     model_params = {'weights': 'IMAGENET1K_V1'} if model_name == 'resnet152' or model_name == 'resnet50' else None
 
-    extractor = get_extractor(
-        model_name=model_name,
-        source=source_name,
-        device='cuda',
-        pretrained=True,
-        model_parameters=model_params
-    )
+    # extractor = get_extractor(
+    #     model_name=model_name,
+    #     source=source_name,
+    #     device='cuda',
+    #     pretrained=True,
+    #     model_parameters=model_params
+    # )
+
+    extractor = get_extractor_from_model(model=AlexNet().cuda(), device='cuda', backend='pt')
     
-    states = torch.load(f"/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/alexnet_features.10_1_3ep.pth")
+    states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/gap_alexnet_features.16_6_inverse_try2_3ep.pth")
     if states is not None:
         extractor.model.load_state_dict(states)
 

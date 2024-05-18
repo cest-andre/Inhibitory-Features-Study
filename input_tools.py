@@ -3,7 +3,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-from thingsvision import get_extractor
+from thingsvision import get_extractor, get_extractor_from_model
 from PIL import Image
 import copy
 import torchvision
@@ -20,6 +20,7 @@ from tuning_curve import get_all_stim_acts, get_max_stim_dirs
 from modify_weights import clamp_ablate_layer, clamp_ablate_unit
 from plot_utils import input_proto_sim_plot, proto_anti_sim_plot
 from misc_utils import stim_compare
+from train_imnet import AlexNet
 
 
 def get_layer_max_stim_acts(extractor, topdir, botdir, protodir, antiprotodir, poslucentdir, neglucentdir, module_name, neuron_coord):
@@ -780,6 +781,8 @@ if __name__ == '__main__':
     # parser.add_argument('--type', type=str, required=False)
     args = parser.parse_args()
 
+    torch.manual_seed(0)
+
     #   Work with intact stimuli for now.  Perhaps refactor to consolidate max directories into single dictionary.  Then can loop through
     #   max_dir_dict in get_all_stim_acts and create new dict with key + "_acts" to handle being different dirs.
     model_name, neuron_coord, module_name, states, \
@@ -787,12 +790,18 @@ if __name__ == '__main__':
     topdir, botdir, protodir, antiprotodir, poslucentdir, neglucentdir = get_max_stim_dirs(args.network, args.layer, args.neuron, ablate_type=args.ablate_type, load_states=True)
 
     source_name = 'custom' if model_name == 'cornet-s' else 'torchvision'
-    extractor = get_extractor(
-        model_name=model_name,
-        source=source_name,
-        device='cuda',
-        pretrained=True
-    )
+    # extractor = get_extractor(
+    #     model_name=model_name,
+    #     source=source_name,
+    #     device='cuda',
+    #     pretrained=True
+    # )
+
+    extractor = get_extractor_from_model(model=AlexNet().cuda(), device='cuda', backend='pt')
+
+    states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/gap_alexnet_features.16_baseline_try2_3ep.pth")
+    if states is not None:
+        extractor.model.load_state_dict(states)
 
     mask = None
     if args.mask_layer_name is not None:
@@ -801,10 +810,6 @@ if __name__ == '__main__':
         )
         mask = np.expand_dims(normalize(mask), -1)
         # mask = np.transpose(mask, (2, 0, 1))
-
-    states = torch.load(f"/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/alexnet_features.10_1_3ep.pth")
-    if states is not None:
-        extractor.model.load_state_dict(states)
 
     # get_pos_neg_input_mag(extractor, topdir, botdir, protodir, antiprotodir, poslucentdir, neglucentdir, args.input_layer_name, args.weight_name, args.neuron)
 

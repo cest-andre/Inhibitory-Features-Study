@@ -20,8 +20,14 @@ def ablate_all_inhibs(states):
     return states
 
 
-def clamp_ablate_layer(states, layername, min=None, max=None, bias_name=None):
-    states[layername] = torch.clamp(states[layername], min=min, max=max)
+def clamp_ablate_layer(states, layername, min=None, max=None, bias_name=None, perc=None):
+    weights = states[layername]
+    rng = default_rng()
+    if perc:
+        chans = rng.choice(weights.shape[0], int(weights.shape[0] * perc), replace=False)
+        states[layername][chans] = torch.clamp(states[layername][chans], min=min, max=max)
+    else:
+        states[layername] = torch.clamp(states[layername], min=min, max=max)
 
     if bias_name is not None:
         states[bias_name] = 0

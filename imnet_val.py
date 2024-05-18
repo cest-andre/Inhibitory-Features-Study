@@ -7,7 +7,7 @@ from numpy.random import default_rng
 import matplotlib.pyplot as plt
 import torchvision
 from torchvision import models, transforms
-from modify_weights import clamp_ablate_unit, random_ablate_unit, binarize_unit
+from modify_weights import clamp_ablate_unit, clamp_ablate_layer, random_ablate_unit, binarize_unit
 sys.path.append(r'/home/andre/evolve-code/circuit_toolkit')
 # sys.path.append(r'/home/andre/evolve-code/selectivity_codes')
 from circuit_toolkit.dataset_utils import create_imagenet_valid_dataset
@@ -185,7 +185,7 @@ def validate(model):
     norm_transformation = transforms.Normalize(mean=MEAN, std=STD)
 
     # create a dataset object for the ImageNet dataset
-    imnet_folder = r"/home/andrelongon/Documents/data/imagenet/val"
+    imnet_folder = r"/media/andrelongon/DATA/imagenet/val"
     imagenet_data = torchvision.datasets.ImageFolder(imnet_folder, transform=transform)
     dataloader = torch.utils.data.DataLoader(imagenet_data, batch_size=batch_size, shuffle=False)
     # print(len(dataloader))
@@ -200,7 +200,7 @@ def validate(model):
         outputs = model(norm_inputs)
 
         # # Compute the top-5 predictions
-        _, predicted = torch.topk(outputs, k=1, dim=1)
+        _, predicted = torch.topk(outputs, k=5, dim=1)
 
         # # Check if the true label is in the top-5 predictions
         correct += (predicted == labels.unsqueeze(1)).any(dim=1).sum().item()
@@ -231,22 +231,24 @@ if __name__ == '__main__':
 
     # model.load_state_dict(ablate_unit(model.state_dict(), "features.10.weight", np.random.randint(0, 256, 64), min=0, max=0))
     # model.load_state_dict(ablate_unit(model.state_dict(), "features.10.weight", np.arange(32), min=0, max=0))
-    # validate(model)
+    intact_acc = validate(model)
     # exit()
 
     all_ablate_accs = []
     inh_ablate_accs = []
     random_ablate_accs = []
     increased_bias_accs = []
-    units = np.arange(32)
+    percents = np.arange(10, 100, 10)
     original_states = copy.deepcopy(model.state_dict())
-
-    for i in units:
-        model.load_state_dict(clamp_ablate_unit(model.state_dict(), "layer4.1.conv2.weight", i, min=0, max=0))
+    rng = default_rng()
+    for p in percents:
+        weights = model.state_dict()['layer4.1.conv2.weight']
+        units = rng.choice(weights.shape[0], int(weights.shape[0] * (p/100)), replace=False)
+        model.load_state_dict(clamp_ablate_unit(model.state_dict(), "layer4.1.conv2.weight", units, min=0, max=0))
         all_ablate_accs.append(validate(model))
         model.load_state_dict(original_states)
         
-        model.load_state_dict(clamp_ablate_unit(model.state_dict(), "layer4.1.conv2.weight", i, min=0, max=None))
+        model.load_state_dict(clamp_ablate_unit(model.state_dict(), "layer4.1.conv2.weight", units, min=0, max=None))
         inh_ablate_accs.append(validate(model))
         model.load_state_dict(original_states)
 
@@ -266,17 +268,11 @@ if __name__ == '__main__':
         # increased_bias_accs.append(validate(model))
         # model.load_state_dict(original_states)
 
-    # plt.scatter(units, np.array(all_ablate_accs),  color='g')
-    # plt.scatter(units, np.array(random_ablate_accs), color='r')
-    # plt.scatter(units, np.array(inh_ablate_accs), color='b')
-    # plt.savefig(f'/home/andre/imagenet_val_data/{args.network}_features.10.weight_ablate_imnet_val_accuracy.png')
-    # plt.close()
-
     np.save(
         f'/home/andrelongon/Documents/inhibition_code/imagenet_val_data/{args.network}_layer4.1.conv2.weight_all_ablate_imnet_val_accuracy.npy',
         np.array(all_ablate_accs)
     )
-    print(np.mean(np.array(all_ablate_accs)))
+    # print(np.mean(np.array(all_ablate_accs)))
     # np.save(
     #     f'/home/andre/imagenet_val_data/{args.network}_features.10.weight_random_ablate_imnet_val_accuracy.npy',
     #     np.array(random_ablate_accs)
@@ -285,8 +281,23 @@ if __name__ == '__main__':
         f'/home/andrelongon/Documents/inhibition_code/imagenet_val_data/{args.network}_layer4.1.conv2.weight_inh_ablate_imnet_val_accuracy.npy',
         np.array(inh_ablate_accs)
     )
-    print(np.mean(np.array(inh_ablate_accs)))
+    # print(np.mean(np.array(inh_ablate_accs)))
     # np.save(
     #     f'/home/andre/imagenet_val_data/{args.network}_features.10.increased_bias_imnet_val_accuracy.npy',
     #     np.array(increased_bias_accs)
     # )
+
+    # all_ablate_accs = np.load(f'/home/andrelongon/Documents/inhibition_code/imagenet_val_data/{args.network}_layer4.1.conv2.weight_all_ablate_imnet_val_accuracy.npy')
+    # inh_ablate_accs = np.load(f'/home/andrelongon/Documents/inhibition_code/imagenet_val_data/{args.network}_layer4.1.conv2.weight_inh_ablate_imnet_val_accuracy.npy')
+
+    plt.title("Imnet Val Accuracy - All vs Negative-Only Weight Ablations\nResnet18 layer4.1.conv2")
+    plt.xlabel("Units Ablated %")
+    plt.ylabel("Top-5 %")
+
+    plt.scatter(percents, np.array(all_ablate_accs),  color='r', label="All")
+    # plt.scatter(units, np.array(random_ablate_accs), color='r')
+    plt.scatter(percents, np.array(inh_ablate_accs), color='b', label="Neg-Only")
+    plt.axhline(y=intact_acc, color='g', linestyle='-', label="Intact") 
+    plt.legend(loc="upper right")
+    plt.savefig(f'/home/andrelongon/Documents/inhibition_code/imagenet_val_data/{args.network}_layer4.1.conv2.weight.weight_ablate_imnet_val_accuracy.png')
+    plt.close()
