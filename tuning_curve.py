@@ -20,6 +20,7 @@ from imnet_val import validate_tuning_curve, validate_tuning_curve_thingsvision
 from train_imnet import AlexNet
 from modify_weights import clamp_ablate_unit, clamp_ablate_layer, random_ablate_unit, channel_random_ablate_unit, binarize_unit
 from transplant import get_activations
+from cornet_s import CORnet_S
 
 
 def get_max_stim_acts(extractor, imgs, module_name, selected_neuron=None, neuron_coord=None):
@@ -315,21 +316,21 @@ def compare_tuning_curves(model, savedir, layer, selected_layer, selected_neuron
             if ablate != "":
                 saveTopN(all_images, all_ord_sorted, f"{layer}_neuron{selected_neuron}", path=savedir)
 
-                np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_{ablate}_unrolled_act.npy"),
-                        np.array(unrolled_act))
-                np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_{ablate}_all_act_list.npy"),
-                        np.array(list(all_act_list)))
-                np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_{ablate}_all_ord_sorted.npy"),
-                        np.array(list(all_ord_sorted)))
+                # np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_{ablate}_unrolled_act.npy"),
+                #         np.array(unrolled_act))
+                # np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_{ablate}_all_act_list.npy"),
+                #         np.array(list(all_act_list)))
+                # np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_{ablate}_all_ord_sorted.npy"),
+                #         np.array(list(all_ord_sorted)))
             else:
                 saveTopN(all_images, all_ord_sorted, f"{layer}_neuron{selected_neuron}", path=savedir)
 
-                np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_intact_unrolled_act.npy"),
-                        np.array(unrolled_act))
-                np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_intact_all_act_list.npy"),
-                        np.array(list(all_act_list)))
-                np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_intact_all_ord_sorted.npy"),
-                        np.array(list(all_ord_sorted)))
+                # np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_intact_unrolled_act.npy"),
+                #         np.array(unrolled_act))
+                # np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_intact_all_act_list.npy"),
+                #         np.array(list(all_act_list)))
+                # np.save(os.path.join(savedir, f"{layer}_unit{selected_neuron}_intact_all_ord_sorted.npy"),
+                #         np.array(list(all_ord_sorted)))
 
 
 def get_max_stim_dirs(network, layer, selected_neuron, ablate_type="", mask="/no_mask", ablated="", load_states=False):
@@ -471,12 +472,12 @@ def get_max_stim_dirs(network, layer, selected_neuron, ablate_type="", mask="/no
         module_name = 'IT.norm2_1'
 
         if ablate_type != "":
-            curvedir = f'/home/andrelongon/Documents/inhibition_code/tuning_curves/cornet-s/{layer}/{ablate_type}'
+            curvedir = f'/media/andrelongon/DATA/tuning_curves/cornet-s/{layer}/{ablate_type}'
             ranksdir = f'/home/andrelongon/Documents/inhibition_code/rank_data/{ablate_type}/cornet-s'
 
             actsdir = os.path.join(curvedir, f'{layer}_unit{selected_neuron}_{ablate_type}_unrolled_act.npy')
         else:
-            curvedir = f'/home/andrelongon/Documents/inhibition_code/tuning_curves/cornet-s/{layer}/intact'
+            curvedir = f'/media/andrelongon/DATA/tuning_curves/cornet-s/{layer}/intact'
             ranksdir = '/home/andrelongon/Documents/inhibition_code/rank_data/intact/cornet-s'
 
             actsdir = os.path.join(curvedir, f'{layer}_unit{selected_neuron}_intact_unrolled_act.npy')
@@ -502,12 +503,12 @@ def get_max_stim_dirs(network, layer, selected_neuron, ablate_type="", mask="/no
 
     #   TODO:  Simplify above code to make use of this catchall.
     if ablate_type != "":
-        curvedir = f'/home/andrelongon/Documents/inhibition_code/tuning_curves/{network}/{layer}/{ablate_type}'
+        curvedir = f'/media/andrelongon/DATA/tuning_curves/{network}/{layer}/{ablate_type}'
         ranksdir = f'/home/andrelongon/Documents/inhibition_code/rank_data/{ablate_type}/{network}'
 
         actsdir = os.path.join(curvedir, f'{layer}_unit{selected_neuron}_{ablate_type}_unrolled_act.npy')
     else:
-        curvedir = f'/home/andrelongon/Documents/inhibition_code/tuning_curves/{network}/{layer}/intact'
+        curvedir = f'/media/andrelongon/DATA/tuning_curves/{network}/{layer}/intact'
         ranksdir = f'/home/andrelongon/Documents/inhibition_code/rank_data/intact/{network}'
 
         actsdir = os.path.join(curvedir, f'{layer}_unit{selected_neuron}_intact_unrolled_act.npy')
@@ -542,20 +543,26 @@ if __name__ == '__main__':
     curvedir, ranksdir, actsdir, \
     topdir, botdir, protodir, antiprotodir, poslucentdir, neglucentdir = get_max_stim_dirs(args.network, args.layer, args.neuron, ablate_type=args.ablate_type, load_states=True)
 
-    source_name = 'custom' if model_name == 'cornet-s' else 'torchvision'
-    model_params = {'weights': 'IMAGENET1K_V1'} if model_name == 'resnet152' or model_name == 'resnet50' else None
+    extractor = None
+    if args.network == 'cornet-s':
+        cornet = CORnet_S()
+        cornet.load_state_dict(torch.load("/home/andrelongon/Documents/inhibition_code/weights/cornet-s.pth"))
+        extractor = get_extractor_from_model(model=cornet.cuda(), device='cuda:0', backend='pt')
+    elif args.network == 'resnet50_barlow':
+        model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
+        extractor = get_extractor_from_model(model=model, device='cuda:0', backend='pt')
+    else:
+        model_params = {'weights': 'IMAGENET1K_V1'} if model_name == 'resnet152' or model_name == 'resnet50' else None
 
-    # extractor = get_extractor(
-    #     model_name=model_name,
-    #     source=source_name,
-    #     device='cuda',
-    #     pretrained=True,
-    #     model_parameters=model_params
-    # )
+        extractor = get_extractor(
+            model_name=model_name,
+            source='torchvision',
+            device='cuda',
+            pretrained=True,
+            model_parameters=model_params
+        )
 
-    extractor = get_extractor_from_model(model=AlexNet().cuda(), device='cuda', backend='pt')
-    
-    states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/gap_alexnet_features.16_6_inverse_try2_3ep.pth")
+    # states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/gap_alexnet_features.16_6_inverse_try2_3ep.pth")
     if states is not None:
         extractor.model.load_state_dict(states)
 

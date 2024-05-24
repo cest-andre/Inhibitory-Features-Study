@@ -31,7 +31,7 @@ def validate_tuning_curve_thingsvision(extractor, module_name, selected_neuron=N
     norm_transform = transforms.Normalize(mean=MEAN, std=STD)
 
     # create a dataset object for the ImageNet dataset
-    imnet_folder = r"/home/andrelongon/Documents/data/imagenet/val"
+    imnet_folder = r"/media/andrelongon/DATA/imagenet/val"
     imagenet_data = torchvision.datasets.ImageFolder(imnet_folder, transform=transform)
     #   Shuffle due to taking subset.
     torch.manual_seed(0)

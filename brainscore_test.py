@@ -26,29 +26,29 @@ from brainscore_vision import model_registry
 parser = argparse.ArgumentParser()
 parser.add_argument('--network', type=str)
 parser.add_argument('--layer_name', type=str)
+parser.add_argument('--input_name', type=str, required=False)
 args = parser.parse_args()
 
 model_params = None#{'weights': 'IMAGENET1K_V1'}# if model_name == 'resnet152' or model_name == 'resnet50' else None
 
 source_name = 'custom' if args.network == 'cornet-s' else 'torchvision'
-extractor = get_extractor(
-    model_name=args.network,
-    source=source_name,
-    device='cuda',
-    pretrained=False,
-    model_parameters=model_params
-)
-
+# extractor = get_extractor(
+#     model_name=args.network,
+#     source=source_name,
+#     device='cuda',
+#     pretrained=False,
+#     model_parameters=model_params
+# )
 
 #   Create my alexnet
-# model = AlexNet().cuda()
+model = AlexNet().cuda()
+extractor = get_extractor_from_model(model=model, device='cuda', backend='pt')
 
 states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/{args.network}_untrained.pth")
-# states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/resnet18_layer4.1.conv2_baseline_weightdecay_1ep.pth")
+# states = torch.load(f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/{args.network}_{args.layer_name}_gd_2_1ep.pth")
 extractor.model.load_state_dict(states)
 del states
 
-# extractor = get_extractor_from_model(model=model, device='cuda', backend='pt')
 #   NOTE:  untrained weights to later train without overlap and compare brainscores.
 # torch.save(extractor.model.state_dict(), f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/{args.network}_untrained.pth")
 
@@ -93,7 +93,7 @@ del states
 # exit()
 
 #   Overlap fine tune.
-batch_size = 1024
+batch_size = 256
 IMAGE_SIZE = 224
 # specify ImageNet mean and standard deviation
 MEAN = [0.485, 0.456, 0.406]
@@ -116,9 +116,9 @@ dataloader = torch.utils.data.DataLoader(imagenet_data, batch_size=batch_size, s
 supervised_train = True
 val = True
 criterion = nn.CrossEntropyLoss().cuda()
-optimizer = optim.AdamW(extractor.model.parameters())
+optimizer = optim.Adam(extractor.model.parameters())
 
-# states = torch.load("/media/andrelongon/DATA/imnet_opt_states/overlap_finetune/resnet18_layer4.1.conv2_baseline_weightdecay_1ep.pth")
+# states = torch.load(f"/media/andrelongon/DATA/imnet_opt_states/overlap_finetune/{args.network}_{args.layer_name}_gd_2_1ep.pth")
 # optimizer.load_state_dict(states)
 # del states
 
@@ -149,6 +149,9 @@ optimizer = optim.AdamW(extractor.model.parameters())
 
 metric = lpips.LPIPS(net='alex').cuda()
 
+for param in metric.parameters():
+    param.requires_grad = False
+
 epochs = 3
 top_ch = 3
 distances = []
@@ -157,22 +160,92 @@ offset = None
 
 for e in range(0, epochs):
     for j, (inputs, labels) in enumerate(dataloader):
+        print(j)
+
         inputs = inputs.cuda()
         labels = labels.cuda()
 
         norm_inputs = norm_transform(inputs)
 
         if supervised_train:
+            #   TODO:  get avg lpips of top and bot act imgs in batch (center unit or avg across entire channel?)
+            #          obtain da/dw from target layer (convolution required if considering the entire channel acts?)
+            #          update weights by first multiplying da/dw with lpips and update via current optimizer params.
+            #
+            #          Generate ones tensor size of target layer acts.  Convolve with input acts for all images that were
+            #          used in lpips to obtain dl/dw (dl/da is 1 to penalize high acts on these imgs).
+            #          Should be same size as weight tensor, use to update along with lpips scale and opt params.
+            #          Final dl/dw will be avg across all imgs?
+            #
+            #          Consider the neg act situation.  In this case, the loss is -1 * act, so mult these ones tensors by -1
+            #          before the conv.
+            #
+            #          LOWER LPIPS MEANS MORE SIMILAR.
+
+            #   TODO:  lpips might never hit 0, so perhaps I need to apply a threshold to zero it out if a neuron's mean dist is below it.
+            #       NOTE:  after a couple epochs, the mean dist for the layer fluctuated between 0.75-0.8, so I don't think a threshold
+            #              is appropriate yet.  But I may need to scale down the gradient by a constant, set dl_da to a fraction rather than ones.
+            with torch.no_grad():
+                # states = extractor.model.state_dict()
+                # layer_weights = torch.clone(states[args.layer_name + '.weight'])
+
+                input_acts = get_activations(extractor, norm_inputs, args.input_name)
+                # input_acts = torch.transpose(torch.tensor(input_acts), 0, 1)
+                #   relu
+                input_acts = torch.clamp(torch.tensor(input_acts), min=0, max=None).to("cuda:0")
+
+                acts = get_activations(extractor, norm_inputs, args.layer_name)
+                acts = torch.transpose(torch.tensor(acts), 0, 1)
+                #   transpose to obtain (neuron, batch, acts)
+                sum_acts = torch.sum(torch.tensor(acts), (-2, -1))
+                img_idx = torch.argsort(sum_acts)
+
+                weight_grads = []
+                dists = []
+                for n in range(img_idx.shape[0]):
+                    top_imgs = norm_inputs[torch.flip(img_idx[n][-9:], (0,))]
+                    bot_imgs = norm_inputs[img_idx[n][:9]]
+
+                    dist = metric(top_imgs, bot_imgs)
+                    dists.append(torch.mean(dist))
+
+                    #   NOTE:  add a fraction constant to activation loss to try to balance gradient.
+                    dl_da = torch.ones((acts.shape[0], 1, acts.shape[-2], acts.shape[-1]), device="cuda:0")
+                    # dl_da = torch.full((acts.shape[0], 1, acts.shape[-2], acts.shape[-1]), 0.1, device="cuda:0")
+
+                    top_dl_dw = nn.functional.conv2d(input_acts[torch.flip(img_idx[n][-9:], (0,))], dl_da, padding=1, groups=input_acts.shape[1])
+                    bot_dl_dw = nn.functional.conv2d(input_acts[img_idx[n][:9]], -1 * dl_da, padding=1, groups=input_acts.shape[1])
+
+                    dl_dw = torch.mean(top_dl_dw + bot_dl_dw, 0)
+                    #   Scale based on dist so that we only update if lpips is high.
+                    weight_grads.append(torch.mean(dist).to("cuda:0") * dl_dw)
+
+                print(f"LPIPS layer mean:  {torch.mean(torch.stack(dists))}")
+
             optimizer.zero_grad()
+            # print(extractor.model.layer4[1].conv2.weight.grad[0, 0, :])
 
             # old_w = torch.clone(extractor.model.state_dict()[args.layer_name + '.weight'])
 
             outputs = extractor.model(norm_inputs)
             loss = criterion(outputs, labels)
             loss.backward()
+
+            #   resnet
+            # extractor.model.layer4[1].conv2.weight.grad += torch.stack(weight_grads).to("cuda:1")
+            #   alexnet
+            # extractor.model.features[16].weight.grad *= 0.1
+            extractor.model.features[16].weight.grad = torch.stack(weight_grads).to("cuda:1")
+
             optimizer.step()
 
-            # continue
+            # weight_grads = torch.stack(weight_grads)
+
+            # opt_params = optimizer.state_dict()['param_groups'][0]
+            # exp_avg = optimizer.state_dict()["state"][57]["exp_avg"]
+            # exp_avg_sq = optimizer.state_dict()["state"][57]["exp_avg_sq"]
+
+            continue
 
             # new_w = torch.clone(extractor.model.state_dict()[args.layer_name + '.weight'])
             # offset = torch.mean(torch.abs(old_w - new_w)) / 10
@@ -266,7 +339,7 @@ for e in range(0, epochs):
         states[args.layer_name + '.weight'] = layer_weights
         extractor.model.load_state_dict(states)
 
-    model_label = f'3_inverse_{e+1}ep'
+    model_label = f'gd_2_{e+1}ep'
     torch.save(extractor.model.state_dict(), f"/media/andrelongon/DATA/imnet_weights/overlap_finetune/{args.network}_{args.layer_name}_{model_label}.pth")
     torch.save(optimizer.state_dict(), f"/media/andrelongon/DATA/imnet_opt_states/overlap_finetune/{args.network}_{args.layer_name}_{model_label}.pth")
 
