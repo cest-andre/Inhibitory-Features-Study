@@ -552,10 +552,10 @@ if __name__ == '__main__':
         model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
         extractor = get_extractor_from_model(model=model, device='cuda:0', backend='pt')
     else:
-        model_params = {'weights': 'IMAGENET1K_V1'} if model_name == 'resnet152' or model_name == 'resnet50' else None
+        model_params = {'weights': 'IMAGENET1K_V1'} if args.network == 'resnet152' or args.network == 'resnet50' else None
 
         extractor = get_extractor(
-            model_name=model_name,
+            model_name=args.network,
             source='torchvision',
             device='cuda',
             pretrained=True,

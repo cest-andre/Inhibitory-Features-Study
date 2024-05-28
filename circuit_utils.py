@@ -108,7 +108,7 @@ def measure_specialization(extractor, weight_name, input_module=None):
     # print(mean_neg_viz_neg_ubiq / abs_weights.shape[0])
 
 
-def viz_inputs(extractor, weights, target_module, neuron, input_module, pos_idx, neg_idx):
+def viz_inputs(extractor, weights, model_name, target_module, neuron, input_module, pos_idx, neg_idx):
     MEAN = [0.485, 0.456, 0.406]
     STD = [0.229, 0.224, 0.225]
     norm_trans = transforms.Compose([
@@ -116,8 +116,8 @@ def viz_inputs(extractor, weights, target_module, neuron, input_module, pos_idx,
         transforms.Normalize(mean=MEAN, std=STD)
     ])
 
-    # top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/resnet50_barlow/{target_module}/unit{neuron}/pos/0_distill_center.png")
-    top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/resnet50_barlow/{target_module}/intact/{target_module}_neuron{neuron}/max/exc/0.png")
+    # top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{target_module}/unit{neuron}/pos/0_distill_center.png")
+    top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{target_module}/intact/{target_module}_neuron{neuron}/max/exc/0.png")
     top_img = norm_trans(top_img)
 
     idx_offset = weights.shape[-1] // 2
@@ -186,32 +186,153 @@ def top_weighted_inputs(weights):
     return mag_idx, pos_idx, neg_idx
 
 
-if __name__ == "__main__":
-    # model = CORnet_S()
-    # model.load_state_dict(torch.load("/home/andrelongon/Documents/inhibition_code/weights/cornet-s.pth"))
+def feature_overwrite(extractor, model_name, output_module, input_module, middle_module, neuron, imnet_val=False):
+    MEAN = [0.485, 0.456, 0.406]
+    STD = [0.229, 0.224, 0.225]
+    norm_trans = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=MEAN, std=STD)
+    ])
 
-    model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
-    # print(model)
+    top_img = None
+    if imnet_val:
+        top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{output_module}/intact/{output_module}_neuron{neuron}/max/exc/0.png")
+    else:
+        top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{output_module}/unit{neuron}/pos/0_distill_channel.png")
+
+    top_img = norm_trans(top_img)
+
+    #   NOTE:  retrieve center act from channel as this is how top imnet imgs are sorted.
+    output_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
+    input_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
+    middle_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
+
+    print("---OUTPUT MODULE FEATURE VIZ---")
+    print("OUTPUT ACT")
+    print(f"Total act: {np.sum(output_acts)}, Pos act: {np.sum(np.clip(output_acts, 0, None))}, Neg act: {np.sum(np.clip(output_acts, None, 0))}")
+
+    print("INPUT ACT")
+    print(f"Total act: {np.sum(input_acts)}, Pos act: {np.sum(np.clip(input_acts, 0, None))}, Neg act: {np.sum(np.clip(input_acts, None, 0))}")
+
+    print("BN3 ACT")
+    print(f"Total act: {np.sum(middle_acts)}, Pos act: {np.sum(np.clip(middle_acts, 0, None))}, Neg act: {np.sum(np.clip(middle_acts, None, 0))}")
+    print("-------------------------------")
+
+    if imnet_val:
+        top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{input_module}/intact/{input_module}_neuron{neuron}/max/exc/0.png")
+    else:
+        top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{input_module}/unit{neuron}/pos/0_distill_channel.png")
+
+    top_img = norm_trans(top_img)
+
+    output_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
+    input_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
+    middle_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
+
+    print("---INPUT MODULE FEATURE VIZ---")
+    print("OUTPUT ACT")
+    print(f"Total act: {np.sum(output_acts)}, Pos act: {np.sum(np.clip(output_acts, 0, None))}, Neg act: {np.sum(np.clip(output_acts, None, 0))}")
+
+    print("INPUT ACT")
+    print(f"Total act: {np.sum(input_acts)}, Pos act: {np.sum(np.clip(input_acts, 0, None))}, Neg act: {np.sum(np.clip(input_acts, None, 0))}")
+
+    print("BN3 ACT")
+    print(f"Total act: {np.sum(middle_acts)}, Pos act: {np.sum(np.clip(middle_acts, 0, None))}, Neg act: {np.sum(np.clip(middle_acts, None, 0))}")
+    print("-------------------------------")
+
+    if imnet_val:
+        top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{middle_module}/intact/{middle_module}_neuron{neuron}/max/exc/0.png")
+    else:
+        top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{middle_module}/unit{neuron}/pos/0_distill_channel.png")
+
+    top_img = norm_trans(top_img)
+
+    output_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
+    input_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
+    middle_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
+
+    print("---MIDDLE MODULE FEATURE VIZ---")
+    print("OUTPUT ACT")
+    print(f"Total act: {np.sum(output_acts)}, Pos act: {np.sum(np.clip(output_acts, 0, None))}, Neg act: {np.sum(np.clip(output_acts, None, 0))}")
+
+    print("INPUT ACT")
+    print(f"Total act: {np.sum(input_acts)}, Pos act: {np.sum(np.clip(input_acts, 0, None))}, Neg act: {np.sum(np.clip(input_acts, None, 0))}")
+
+    print("BN3 ACT")
+    print(f"Total act: {np.sum(middle_acts)}, Pos act: {np.sum(np.clip(middle_acts, 0, None))}, Neg act: {np.sum(np.clip(middle_acts, None, 0))}")
+    print("-------------------------------")
+
+
+def top_weights(weights):
+    for c in range(weights.shape[0]):
+        print(f"CHANNEL {c}")
+        _, w_idx = torch.topk(torch.flatten(weights[c]), 9)
+        print(f"TOP WEIGHTS: {w_idx}")
+
+        if c == 100:
+            break
+
+
+if __name__ == "__main__":
+    network = "resnet50"
+    run_mode = 'stream_logic'
+
+    extractor = None
+    if network == "cornet-s":
+        model = CORnet_S()
+        model.load_state_dict(torch.load("/home/andrelongon/Documents/inhibition_code/weights/cornet-s.pth"))
+        extractor = get_extractor_from_model(model=model, device='cpu', backend='pt')
+    elif network == "resnet50_barlow":
+        model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
+        extractor = get_extractor_from_model(model=model, device='cpu', backend='pt')
+    else:
+        model_params = {'weights': 'IMAGENET1K_V1'} if network == 'resnet152' or network == 'resnet50' else None
+
+        extractor = get_extractor(
+            model_name=network,
+            source='torchvision',
+            device='cpu',
+            pretrained=True,
+            model_parameters=model_params
+        )
+
+    # print(extractor.model)
     # exit()
 
-    extractor = get_extractor_from_model(model=model, device='cpu', backend='pt')
-    target_module = "layer4.2.conv3"
-    input_module = "layer4.2.bn2"
-    num_neurons = 2048
+    if run_mode == 'overlap':
+        target_module = "layer4.2.conv3"
+        input_module = "layer4.2.bn2"
+        num_neurons = 2048
 
-    intersects = np.empty(0)
-    overlaps = 0
-    for neuron in range(num_neurons):
-    # neuron = 147
-        # print(f"NEURON {neuron}")
-        weights = extractor.model.state_dict()[target_module + ".weight"][neuron]
+        intersects = np.empty(0)
+        overlaps = 0
+        for neuron in range(num_neurons):
+        # neuron = 147
+            # print(f"NEURON {neuron}")
+            weights = extractor.model.state_dict()[target_module + ".weight"][neuron]
 
-        mag_idx, pos_idx, neg_idx = top_weighted_inputs(weights)
-        intersect = viz_inputs(extractor, weights, target_module, neuron, input_module, pos_idx, neg_idx)
+            mag_idx, pos_idx, neg_idx = top_weighted_inputs(weights)
+            intersect = viz_inputs(extractor, weights, network, target_module, neuron, input_module, pos_idx, neg_idx)
 
-        if intersect is not None:
-            intersects = np.concatenate((intersects, intersect))
-            overlaps += 1
+            if intersect is not None:
+                intersects = np.concatenate((intersects, intersect))
+                overlaps += 1
 
-    print(f"Layer {target_module} percent neurons with overlap:  {overlaps / num_neurons}")
-    # print(np.unique(intersects))
+        print(f"Layer {target_module} percent neurons with overlap:  {overlaps / num_neurons}")
+        # print(np.unique(intersects))
+    elif run_mode == 'stream_logic':
+        output_module = 'layer4.1'
+        input_module = 'layer4.0'
+        middle_module = 'layer4.1.bn3'
+        # middle_name = 'layer3.5.bn3'
+        num_neurons = 9
+
+        for neuron in range(num_neurons):
+            print(f"\n\nNEURON {neuron}")
+            feature_overwrite(extractor, network, output_module, input_module, middle_module, neuron, imnet_val=False)
+
+    elif run_mode == 'top_weights':
+        module = 'layer4.0.downsample.0'
+        weights = extractor.model.state_dict()[module + ".weight"]
+
+        top_weights(weights)

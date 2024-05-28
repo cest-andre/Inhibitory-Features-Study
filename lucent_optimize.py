@@ -27,6 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('--neuron', type=int)
     parser.add_argument('--type', type=str)
     parser.add_argument('--ablate', action='store_true', default=False)
+    parser.add_argument('--skip_neg', action='store_true', default=False)
     args = parser.parse_args()
 
     print(f"BEGIN MODULE {args.module} NEURON {args.neuron}")
@@ -60,7 +61,8 @@ if __name__ == '__main__':
         cornet.load_state_dict(torch.load("/home/andrelongon/Documents/inhibition_code/weights/cornet-s.pth"))
         extractor = get_extractor_from_model(model=cornet, device='cuda:0', backend='pt')
     elif extractor is None:
-        extractor = get_extractor(model_name=args.network, source='torchvision', device='cuda:0', pretrained=True)
+        model_params = {'weights': 'IMAGENET1K_V1'} if args.network == 'resnet152' or args.network == 'resnet50' else None
+        extractor = get_extractor(model_name=args.network, source='torchvision', device='cuda:0', pretrained=True, model_parameters=model_params)
 
     if states is not None:
         extractor.model.load_state_dict(states)
@@ -117,3 +119,6 @@ if __name__ == '__main__':
 
             if args.ablate:
                 extractor.model.load_state_dict(states)
+
+            if args.skip_neg:
+                break

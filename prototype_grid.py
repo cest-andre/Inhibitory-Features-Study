@@ -29,21 +29,22 @@ def lucent_grid(basedir, modelname, layername, num_neurons, has_negs=True):
     exc_imgs = []
     inh_imgs = []
     for n in range(num_neurons):
-        img = read_image(os.path.join(basedir, modelname, layername, f"unit{n}", "pos", "0_distill_center.png"))
+        img = read_image(os.path.join(basedir, modelname, layername, f"unit{n}", "pos", "0_distill_channel.png"))
         exc_imgs.append(img)
 
         if has_negs:
-            img = read_image(os.path.join(basedir, modelname, layername, f"unit{n}", "neg", "0_distill_center.png"))
+            img = read_image(os.path.join(basedir, modelname, layername, f"unit{n}", "neg", "0_distill_channel.png"))
             inh_imgs.append(img)
 
-    grid = make_grid(exc_imgs, nrow=int(math.sqrt(num_neurons)))
+    nrow = int(math.sqrt(num_neurons))
+    grid = make_grid(exc_imgs, nrow=nrow)
     grid = torchvision.transforms.ToPILImage()(grid)
-    grid.save(os.path.join(basedir, modelname, layername, "all_pos_lucents_distill_center.png"))
+    grid.save(os.path.join(basedir, modelname, layername, f"all_pos_lucents_distill_channel_{nrow}x{nrow}.png"))
 
     if has_negs:
-        grid = make_grid(inh_imgs, nrow=int(math.sqrt(num_neurons)))
+        grid = make_grid(inh_imgs, nrow=nrow)
         grid = torchvision.transforms.ToPILImage()(grid)
-        grid.save(os.path.join(basedir, modelname, layername, "all_neg_lucents_distill_center.png"))
+        grid.save(os.path.join(basedir, modelname, layername, f"all_neg_lucents_distill_channel_{nrow}x{nrow}.png"))
 
 
 def proto_grid(num_neurons):
@@ -72,5 +73,5 @@ def proto_grid(num_neurons):
 
 
 if __name__ == '__main__':
-    lucent_grid("/media/andrelongon/DATA/feature_viz/intact", "resnet50_barlow", "layer4.0.conv3", 49, has_negs=True)
+    lucent_grid("/media/andrelongon/DATA/feature_viz/intact", "resnet50", "layer4.1.bn3", 9, has_negs=False)
     # recurrence_grid("/media/andrelongon/DATA/feature_viz/intact", "cornet-s", "IT.conv2_id", 36, 2)
