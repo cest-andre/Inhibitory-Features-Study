@@ -186,7 +186,24 @@ def top_weighted_inputs(weights):
     return mag_idx, pos_idx, neg_idx
 
 
-def feature_overwrite(extractor, model_name, output_module, input_module, middle_module, neuron, imnet_val=False):
+def top_weights(weights):
+    all_tops = torch.zeros(weights.shape[1])
+    for c in range(weights.shape[0]):
+        # print(f"CHANNEL {c}")
+        _, w_idx = torch.topk(torch.flatten(weights[c]), 9)
+        # print(f"TOP WEIGHTS: {w_idx}")
+
+        all_tops[w_idx] += 1
+
+        # if torch.nonzero(w_idx == c).shape[0]:
+        #     in_top9 += 1
+
+    _, tops_idx = torch.topk(all_tops, 9)
+    print(f"Top weighted input channels:  {tops_idx}")
+    print(f"Number in out channel's top 9: {all_tops[tops_idx]}")
+
+
+def stream_inspect(extractor, model_name, output_module, input_module, middle_module, neuron, imnet_val=False, show_results=False):
     MEAN = [0.485, 0.456, 0.406]
     STD = [0.229, 0.224, 0.225]
     norm_trans = transforms.Compose([
@@ -196,81 +213,100 @@ def feature_overwrite(extractor, model_name, output_module, input_module, middle
 
     top_img = None
     if imnet_val:
-        top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{output_module}/intact/{output_module}_neuron{neuron}/max/exc/0.png")
+        top_img = [
+            norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{output_module}/intact/{output_module}_neuron{neuron}/max/exc/{i}.png"))
+            for i in range(9)
+        ]
+        top_img = torch.stack(top_img)
     else:
         top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{output_module}/unit{neuron}/pos/0_distill_channel.png")
-
-    top_img = norm_trans(top_img)
+        top_img = norm_trans(top_img)
 
     #   NOTE:  retrieve center act from channel as this is how top imnet imgs are sorted.
-    output_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
-    input_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
-    middle_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
-
-    print("---OUTPUT MODULE FEATURE VIZ---")
-    print("OUTPUT ACT")
-    print(f"Total act: {np.sum(output_acts)}, Pos act: {np.sum(np.clip(output_acts, 0, None))}, Neg act: {np.sum(np.clip(output_acts, None, 0))}")
-
-    print("INPUT ACT")
-    print(f"Total act: {np.sum(input_acts)}, Pos act: {np.sum(np.clip(input_acts, 0, None))}, Neg act: {np.sum(np.clip(input_acts, None, 0))}")
-
-    print("BN3 ACT")
-    print(f"Total act: {np.sum(middle_acts)}, Pos act: {np.sum(np.clip(middle_acts, 0, None))}, Neg act: {np.sum(np.clip(middle_acts, None, 0))}")
-    print("-------------------------------")
+    out_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
+    out_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
+    out_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
 
     if imnet_val:
-        top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{input_module}/intact/{input_module}_neuron{neuron}/max/exc/0.png")
+        top_img = [
+            norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{input_module}/intact/{input_module}_neuron{neuron}/max/exc/{i}.png"))
+            for i in range(9)
+        ]
+        top_img = torch.stack(top_img)
     else:
         top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{input_module}/unit{neuron}/pos/0_distill_channel.png")
+        top_img = norm_trans(top_img)
 
-    top_img = norm_trans(top_img)
-
-    output_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
-    input_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
-    middle_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
-
-    print("---INPUT MODULE FEATURE VIZ---")
-    print("OUTPUT ACT")
-    print(f"Total act: {np.sum(output_acts)}, Pos act: {np.sum(np.clip(output_acts, 0, None))}, Neg act: {np.sum(np.clip(output_acts, None, 0))}")
-
-    print("INPUT ACT")
-    print(f"Total act: {np.sum(input_acts)}, Pos act: {np.sum(np.clip(input_acts, 0, None))}, Neg act: {np.sum(np.clip(input_acts, None, 0))}")
-
-    print("BN3 ACT")
-    print(f"Total act: {np.sum(middle_acts)}, Pos act: {np.sum(np.clip(middle_acts, 0, None))}, Neg act: {np.sum(np.clip(middle_acts, None, 0))}")
-    print("-------------------------------")
+    in_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
+    in_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
+    in_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
 
     if imnet_val:
-        top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{middle_module}/intact/{middle_module}_neuron{neuron}/max/exc/0.png")
+        top_img = [
+            norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{middle_module}/intact/{middle_module}_neuron{neuron}/max/exc/{i}.png"))
+            for i in range(9)
+        ]
+        top_img = torch.stack(top_img)
     else:
         top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{middle_module}/unit{neuron}/pos/0_distill_channel.png")
+        top_img = norm_trans(top_img)
 
-    top_img = norm_trans(top_img)
+    mid_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
+    mid_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
+    mid_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
 
-    output_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
-    input_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
-    middle_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
+    if show_results:
+        print("---OUTPUT MODULE TOP IMGS---")
+        print("OUTPUT ACT")
+        print(f"Total act: {np.mean(out_out_acts)}, Pos act: {np.mean(np.clip(out_out_acts, 0, None))}, Neg act: {np.mean(np.clip(out_out_acts, None, 0))}")
 
-    print("---MIDDLE MODULE FEATURE VIZ---")
-    print("OUTPUT ACT")
-    print(f"Total act: {np.sum(output_acts)}, Pos act: {np.sum(np.clip(output_acts, 0, None))}, Neg act: {np.sum(np.clip(output_acts, None, 0))}")
+        print("INPUT ACT")
+        print(f"Total act: {np.mean(out_in_acts)}, Pos act: {np.mean(np.clip(out_in_acts, 0, None))}, Neg act: {np.mean(np.clip(out_in_acts, None, 0))}")
 
-    print("INPUT ACT")
-    print(f"Total act: {np.sum(input_acts)}, Pos act: {np.sum(np.clip(input_acts, 0, None))}, Neg act: {np.sum(np.clip(input_acts, None, 0))}")
+        print("BN3 ACT")
+        print(f"Total act: {np.mean(out_mid_acts)}, Pos act: {np.mean(np.clip(out_mid_acts, 0, None))}, Neg act: {np.mean(np.clip(out_mid_acts, None, 0))}")
+        print("-------------------------------")
 
-    print("BN3 ACT")
-    print(f"Total act: {np.sum(middle_acts)}, Pos act: {np.sum(np.clip(middle_acts, 0, None))}, Neg act: {np.sum(np.clip(middle_acts, None, 0))}")
-    print("-------------------------------")
+        print("---INPUT MODULE TOP IMGS---")
+        print("OUTPUT ACT")
+        print(f"Total act: {np.mean(in_out_acts)}, Pos act: {np.mean(np.clip(in_out_acts, 0, None))}, Neg act: {np.mean(np.clip(in_out_acts, None, 0))}")
+
+        print("INPUT ACT")
+        print(f"Total act: {np.mean(in_in_acts)}, Pos act: {np.mean(np.clip(in_in_acts, 0, None))}, Neg act: {np.mean(np.clip(in_in_acts, None, 0))}")
+
+        print("BN3 ACT")
+        print(f"Total act: {np.mean(in_mid_acts)}, Pos act: {np.mean(np.clip(in_mid_acts, 0, None))}, Neg act: {np.mean(np.clip(in_mid_acts, None, 0))}")
+        print("-------------------------------")
+
+        print("---MIDDLE MODULE TOP IMGS---")
+        print("OUTPUT ACT")
+        print(f"Total act: {np.mean(mid_out_acts)}, Pos act: {np.mean(np.clip(mid_out_acts, 0, None))}, Neg act: {np.mean(np.clip(mid_out_acts, None, 0))}")
+
+        print("INPUT ACT")
+        print(f"Total act: {np.mean(mid_in_acts)}, Pos act: {np.mean(np.clip(mid_in_acts, 0, None))}, Neg act: {np.mean(np.clip(mid_in_acts, None, 0))}")
+
+        print("BN3 ACT")
+        print(f"Total act: {np.mean(mid_mid_acts)}, Pos act: {np.mean(np.clip(mid_mid_acts, 0, None))}, Neg act: {np.mean(np.clip(mid_mid_acts, None, 0))}")
+        print("-------------------------------")
+
+    return {
+               "out_out_acts": np.mean(out_out_acts), "out_in_acts": np.mean(out_in_acts), "out_mid_acts": np.mean(out_mid_acts),
+               "in_out_acts": np.mean(in_out_acts), "in_in_acts": np.mean(in_in_acts), "in_mid_acts": np.mean(in_mid_acts),
+               "mid_out_acts": np.mean(mid_out_acts), "mid_in_acts": np.mean(mid_in_acts), "mid_mid_acts": np.mean(mid_mid_acts)
+           }
 
 
-def top_weights(weights):
-    for c in range(weights.shape[0]):
-        print(f"CHANNEL {c}")
-        _, w_idx = torch.topk(torch.flatten(weights[c]), 9)
-        print(f"TOP WEIGHTS: {w_idx}")
+def mix_metric(out_out_acts, out_in_acts, out_mid_acts, in_out_acts, in_in_acts, in_mid_acts, mid_out_acts, mid_in_acts, mid_mid_acts, inverse=False):
+    out_ratio = None
+    if out_in_acts >= out_mid_acts:
+        out_ratio = out_mid_acts / (out_in_acts + 1e-10)
+    else:
+        out_ratio = out_in_acts / (out_mid_acts + 1e-10)
 
-        if c == 100:
-            break
+    if inverse:
+        return out_ratio * ((mid_in_acts / (in_in_acts + 1e-10)) + (in_mid_acts / (mid_mid_acts + 1e-10)))
+    else:
+        return out_ratio * ((out_in_acts - mid_in_acts) + (out_mid_acts - in_mid_acts))
 
 
 if __name__ == "__main__":
@@ -291,7 +327,7 @@ if __name__ == "__main__":
         extractor = get_extractor(
             model_name=network,
             source='torchvision',
-            device='cpu',
+            device='cuda',
             pretrained=True,
             model_parameters=model_params
         )
@@ -325,14 +361,21 @@ if __name__ == "__main__":
         input_module = 'layer4.0'
         middle_module = 'layer4.1.bn3'
         # middle_name = 'layer3.5.bn3'
-        num_neurons = 9
+        num_neurons = 2048
 
-        for neuron in range(num_neurons):
-            print(f"\n\nNEURON {neuron}")
-            feature_overwrite(extractor, network, output_module, input_module, middle_module, neuron, imnet_val=False)
+        mixes = []
+        for n in range(num_neurons):
+            # print(f"\n\nNEURON {neuron}")
+            acts = stream_inspect(extractor, network, output_module, input_module, middle_module, n, imnet_val=True, show_results=False)
+            
+            mixes.append(mix_metric(**acts, inverse=False))
+            # print(mixes)
+            # exit()
+            
+        print(torch.topk(torch.tensor(mixes), 9))
 
     elif run_mode == 'top_weights':
-        module = 'layer4.0.downsample.0'
+        module = 'layer4.1.conv1'
         weights = extractor.model.state_dict()[module + ".weight"]
 
         top_weights(weights)
