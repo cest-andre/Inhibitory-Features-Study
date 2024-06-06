@@ -296,21 +296,52 @@ def stream_inspect(extractor, model_name, output_module, input_module, middle_mo
            }
 
 
-def mix_metric(out_out_acts, out_in_acts, out_mid_acts, in_out_acts, in_in_acts, in_mid_acts, mid_out_acts, mid_in_acts, mid_mid_acts, inverse=False):
-    out_ratio = None
+def mix_metric(out_out_acts, out_in_acts, out_mid_acts, in_out_acts, in_in_acts, in_mid_acts, mid_out_acts, mid_in_acts, mid_mid_acts, inverse=False, mix_only=False):
+    mix_ratio = None
     if out_in_acts >= out_mid_acts:
-        out_ratio = out_mid_acts / (out_in_acts + 1e-10)
+        mix_ratio = out_mid_acts / (out_in_acts + 1e-10)
     else:
-        out_ratio = out_in_acts / (out_mid_acts + 1e-10)
+        mix_ratio = out_in_acts / (out_mid_acts + 1e-10)
+
+    if mix_only:
+        return mix_ratio
 
     if inverse:
-        return out_ratio * ((mid_in_acts / (in_in_acts + 1e-10)) + (in_mid_acts / (mid_mid_acts + 1e-10)))
+        return mix_ratio * ((mid_in_acts / (in_in_acts + 1e-10)) + (in_mid_acts / (mid_mid_acts + 1e-10)))
     else:
-        return out_ratio * ((out_in_acts - mid_in_acts) + (out_mid_acts - in_mid_acts))
+        return mix_ratio * ((out_in_acts - mid_in_acts) + (out_mid_acts - in_mid_acts))
+
+
+def xor_metric(out_out_acts, out_in_acts, out_mid_acts, in_out_acts, in_in_acts, in_mid_acts, mid_out_acts, mid_in_acts, mid_mid_acts, thresh=5):
+    mix_ratio = None
+    if out_in_acts >= out_mid_acts:
+        mix_ratio = out_in_acts / (out_mid_acts + 1e-10)
+    else:
+        mix_ratio = out_mid_acts / (out_in_acts + 1e-10)
+
+    if mix_ratio < thresh or in_out_acts < 0.5 * out_out_acts or mid_out_acts < 0.5 * out_out_acts or \
+    (in_in_acts / (in_mid_acts + 1e-10)) < thresh or (mid_mid_acts / (mid_in_acts + 1e-10)) < thresh:
+        return 0
+    else:
+        return (in_out_acts / (out_out_acts + 1e-10)) + (mid_out_acts / (out_out_acts + 1e-10))
+
+
+def and_metric(out_out_acts, out_in_acts, out_mid_acts, in_out_acts, in_in_acts, in_mid_acts, mid_out_acts, mid_in_acts, mid_mid_acts, mix_thresh=0.75, cross_thresh=3):
+    mix_ratio = None
+    if out_in_acts >= out_mid_acts:
+        mix_ratio = out_mid_acts / (out_in_acts + 1e-10)
+    else:
+        mix_ratio = out_in_acts / (out_mid_acts + 1e-10)
+
+    if mix_ratio < mix_thresh or in_out_acts > 0.5 * out_out_acts or mid_out_acts > 0.5 * out_out_acts:# or \
+    #(in_in_acts / (in_mid_acts + 1e-10)) < cross_thresh or (mid_mid_acts / (mid_in_acts + 1e-10)) < cross_thresh:
+        return 0
+    else:
+        return mix_ratio + (in_out_acts / out_out_acts) + (mid_out_acts / out_out_acts)
 
 
 if __name__ == "__main__":
-    network = "resnet50"
+    network = "resnet18"
     run_mode = 'stream_logic'
 
     extractor = None
@@ -357,22 +388,28 @@ if __name__ == "__main__":
         print(f"Layer {target_module} percent neurons with overlap:  {overlaps / num_neurons}")
         # print(np.unique(intersects))
     elif run_mode == 'stream_logic':
-        output_module = 'layer4.1'
-        input_module = 'layer4.0'
-        middle_module = 'layer4.1.bn3'
+        output_module = 'layer3.1'
+        input_module = 'layer3.0'
+        middle_module = 'layer3.1.bn2'
         # middle_name = 'layer3.5.bn3'
-        num_neurons = 2048
+        num_neurons = 256
 
         mixes = []
+        in_mid_acts = []
         for n in range(num_neurons):
             # print(f"\n\nNEURON {neuron}")
             acts = stream_inspect(extractor, network, output_module, input_module, middle_module, n, imnet_val=True, show_results=False)
             
-            mixes.append(mix_metric(**acts, inverse=False))
-            # print(mixes)
+            # mixes.append(mix_metric(**acts, inverse=False, mix_only=False))
+            in_mid_acts.append(acts['in_mid_acts'])
+
             # exit()
-            
-        print(torch.topk(torch.tensor(mixes), 9))
+
+        # print("TOP MIXES")
+        # print(torch.topk(torch.tensor(mixes), 9))
+
+        print("TOP BN INPUT INHIBITION")
+        print(torch.topk(torch.tensor(in_mid_acts), 9, largest=False))
 
     elif run_mode == 'top_weights':
         module = 'layer4.1.conv1'

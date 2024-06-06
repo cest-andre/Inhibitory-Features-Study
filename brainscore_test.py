@@ -9,7 +9,6 @@ import sys
 import argparse
 import lpips
 import numpy as np
-# from brainscore_core import score_model
 
 from transplant import get_activations
 from modify_weights import rescale_weights
@@ -122,31 +121,6 @@ optimizer = optim.Adam(extractor.model.parameters())
 # optimizer.load_state_dict(states)
 # del states
 
-# num_batches = 256
-# if subset is not None:
-#     num_batches = int(subset * len(dataloader))
-
-# print(f"Running on {num_batches} batches.")
-
-#   Get weights for layer to fine-tune.
-# states = extractor.model.state_dict()
-# layer_weights = torch.clone(states[args.layer_name + '.weight'])
-# weights_copy = torch.clone(layer_weights)
-#   Make copy of weights?
-
-
-#   Get layer acts for each batch.  For each neuron, get lpips for top and bot imgs in batch.
-#   Then, tweak the top 9 pos/neg channel weights (double them?).  Repass images through layer, recompute
-#   top bot lpips.  If lpips decreases from earlier one, tweak original weights by a smaller increase (10%).
-#   If lpips increases, decrease original weights (10%).
-
-#   TODO:  Is a double pass each epoch necessary?  Maybe just for the first batch, but after, can just
-#          keep a single distance array and update it each batch.
-
-# states = torch.load(f"/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/myalexnet_features.16_1_1ep.pth")
-# states = torch.load("/media/andrelongon/DATA/imnet_weights/overlap_finetune/myalexnet_features.16_8_1ep.pth")
-# extractor.model.load_state_dict(states)
-
 metric = lpips.LPIPS(net='alex').cuda()
 
 for param in metric.parameters():
@@ -168,29 +142,8 @@ for e in range(0, epochs):
         norm_inputs = norm_transform(inputs)
 
         if supervised_train:
-            #   TODO:  get avg lpips of top and bot act imgs in batch (center unit or avg across entire channel?)
-            #          obtain da/dw from target layer (convolution required if considering the entire channel acts?)
-            #          update weights by first multiplying da/dw with lpips and update via current optimizer params.
-            #
-            #          Generate ones tensor size of target layer acts.  Convolve with input acts for all images that were
-            #          used in lpips to obtain dl/dw (dl/da is 1 to penalize high acts on these imgs).
-            #          Should be same size as weight tensor, use to update along with lpips scale and opt params.
-            #          Final dl/dw will be avg across all imgs?
-            #
-            #          Consider the neg act situation.  In this case, the loss is -1 * act, so mult these ones tensors by -1
-            #          before the conv.
-            #
-            #          LOWER LPIPS MEANS MORE SIMILAR.
-
-            #   TODO:  lpips might never hit 0, so perhaps I need to apply a threshold to zero it out if a neuron's mean dist is below it.
-            #       NOTE:  after a couple epochs, the mean dist for the layer fluctuated between 0.75-0.8, so I don't think a threshold
-            #              is appropriate yet.  But I may need to scale down the gradient by a constant, set dl_da to a fraction rather than ones.
             with torch.no_grad():
-                # states = extractor.model.state_dict()
-                # layer_weights = torch.clone(states[args.layer_name + '.weight'])
-
                 input_acts = get_activations(extractor, norm_inputs, args.input_name)
-                # input_acts = torch.transpose(torch.tensor(input_acts), 0, 1)
                 #   relu
                 input_acts = torch.clamp(torch.tensor(input_acts), min=0, max=None).to("cuda:0")
 
@@ -223,9 +176,6 @@ for e in range(0, epochs):
                 print(f"LPIPS layer mean:  {torch.mean(torch.stack(dists))}")
 
             optimizer.zero_grad()
-            # print(extractor.model.layer4[1].conv2.weight.grad[0, 0, :])
-
-            # old_w = torch.clone(extractor.model.state_dict()[args.layer_name + '.weight'])
 
             outputs = extractor.model(norm_inputs)
             loss = criterion(outputs, labels)
@@ -239,16 +189,7 @@ for e in range(0, epochs):
 
             optimizer.step()
 
-            # weight_grads = torch.stack(weight_grads)
-
-            # opt_params = optimizer.state_dict()['param_groups'][0]
-            # exp_avg = optimizer.state_dict()["state"][57]["exp_avg"]
-            # exp_avg_sq = optimizer.state_dict()["state"][57]["exp_avg_sq"]
-
             continue
-
-            # new_w = torch.clone(extractor.model.state_dict()[args.layer_name + '.weight'])
-            # offset = torch.mean(torch.abs(old_w - new_w)) / 10
 
         states = extractor.model.state_dict()
         layer_weights = torch.clone(states[args.layer_name + '.weight'])
@@ -280,9 +221,6 @@ for e in range(0, epochs):
                 layer_weights[n, channel_idx[:top_ch]] *= 2
                 layer_weights[n, channel_idx[-top_ch:]] *= 2
 
-                # layer_weights[n, channel_idx[:top_ch]] -= 0.01
-                # layer_weights[n, channel_idx[-top_ch:]] += 0.01
-
             states[args.layer_name + '.weight'] = layer_weights
             extractor.model.load_state_dict(states)
 
@@ -307,11 +245,8 @@ for e in range(0, epochs):
             channel_idx = torch.argsort(torch.sum(layer_weights[n], (1, 2)))
 
             if dist > distances[n]:
-                layer_weights[n, channel_idx[:top_ch]] *= 1.001 #(1 + offset)
-                layer_weights[n, channel_idx[-top_ch:]] *= 1.001 #(1 + offset)
-
-                # layer_weights[n, channel_idx[:top_ch]] -= 0.001
-                # layer_weights[n, channel_idx[-top_ch:]] += 0.001
+                layer_weights[n, channel_idx[:top_ch]] *= 1.001 
+                layer_weights[n, channel_idx[-top_ch:]] *= 1.001 
 
                 distances[n] = dist
 
@@ -344,18 +279,6 @@ for e in range(0, epochs):
     torch.save(optimizer.state_dict(), f"/media/andrelongon/DATA/imnet_opt_states/overlap_finetune/{args.network}_{args.layer_name}_{model_label}.pth")
 
     if val:
-        # states = torch.load("/home/andrelongon/Documents/inhibition_code/weights/overlap_finetune/resnet18_layer4.0.conv1_6_1ep.pth")
-
-        #   TODO:  Rescale based on each neuron's min max weight from pre-finetuned state.
-        # states = rescale_weights(states, extractor.model.state_dict(), 'layer4.0.conv1.weight')
-        # extractor.model.load_state_dict(states)
-
-        # layer_weights = extractor.model.state_dict()['layer4.0.conv1.weight']
-        # layer_weights = torch.flatten(layer_weights, start_dim=1, end_dim=-1)
-        # print(torch.min(layer_weights, 0)[0][:10])
-        # print(torch.max(layer_weights, 0)[0][:10])
-        # exit()
-
         imnet_val_folder = r"/media/andrelongon/DATA/imagenet/val"
         imnet_val_data = torchvision.datasets.ImageFolder(imnet_val_folder, transform=transform)
         torch.manual_seed(0)
