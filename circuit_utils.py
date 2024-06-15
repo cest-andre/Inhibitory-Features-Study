@@ -3,9 +3,19 @@ from torchvision import transforms
 from thingsvision import get_extractor, get_extractor_from_model
 from PIL import Image
 import numpy as np
+from scipy.stats import pearsonr
+import plotly.express as px
 
 from cornet_s import CORnet_S
 from transplant import get_activations
+
+
+MEAN = [0.485, 0.456, 0.406]
+STD = [0.229, 0.224, 0.225]
+norm_trans = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=MEAN, std=STD)
+])
 
 
 def measure_specialization(extractor, weight_name, input_module=None):
@@ -28,12 +38,6 @@ def measure_specialization(extractor, weight_name, input_module=None):
     #   NOTE:  run lucent opt image and obtain input acts, then see which inputs
     #          contributed most to exc and inh.  Then see if these inputs are
     #          special or generic.
-    MEAN = [0.485, 0.456, 0.406]
-    STD = [0.229, 0.224, 0.225]
-    norm_trans = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=MEAN, std=STD)
-    ])
 
     mean_pos_ubiq = 0
     mean_neg_ubiq = 0
@@ -109,13 +113,6 @@ def measure_specialization(extractor, weight_name, input_module=None):
 
 
 def viz_inputs(extractor, weights, model_name, target_module, neuron, input_module, pos_idx, neg_idx):
-    MEAN = [0.485, 0.456, 0.406]
-    STD = [0.229, 0.224, 0.225]
-    norm_trans = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=MEAN, std=STD)
-    ])
-
     # top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{target_module}/unit{neuron}/pos/0_distill_center.png")
     top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{target_module}/intact/{target_module}_neuron{neuron}/max/exc/0.png")
     top_img = norm_trans(top_img)
@@ -203,57 +200,117 @@ def top_weights(weights):
     print(f"Number in out channel's top 9: {all_tops[tops_idx]}")
 
 
-def stream_inspect(extractor, model_name, output_module, input_module, middle_module, neuron, imnet_val=False, show_results=False):
-    MEAN = [0.485, 0.456, 0.406]
-    STD = [0.229, 0.224, 0.225]
-    norm_trans = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=MEAN, std=STD)
-    ])
-
+def measure_invariance(extractor, model_name, output_module, input_module, middle_module, neuron, variant="scale", imnet_val=False, show_results=False):
     top_img = None
     if imnet_val:
-        top_img = [
-            norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{output_module}/intact/{output_module}_neuron{neuron}/max/exc/{i}.png"))
-            for i in range(9)
-        ]
-        top_img = torch.stack(top_img)
-    else:
-        top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{output_module}/unit{neuron}/pos/0_distill_channel.png")
+        top_img = Image.open(
+            f"/media/andrelongon/DATA/tuning_curves/{model_name}/{input_module.split('.prerelu_out')[0]}/intact/{input_module.split('.prerelu_out')[0]}_neuron{neuron}/max/exc/0.png"
+        )
         top_img = norm_trans(top_img)
-
-    #   NOTE:  retrieve center act from channel as this is how top imnet imgs are sorted.
-    out_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
-    out_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
-    out_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
-
-    if imnet_val:
-        top_img = [
-            norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{input_module}/intact/{input_module}_neuron{neuron}/max/exc/{i}.png"))
-            for i in range(9)
-        ]
-        top_img = torch.stack(top_img)
     else:
         top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{input_module}/unit{neuron}/pos/0_distill_channel.png")
         top_img = norm_trans(top_img)
 
-    in_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
-    in_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
-    in_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
+    variant_trans = None
+    if variant == "scale":
+        variant_trans = transforms.Compose([
+            transforms.CenterCrop(112),
+            transforms.Resize(224)
+        ])
+    elif variant == "flip":
+        variant_trans = transforms.RandomHorizontalFlip(p=1)
+
+    mid_base_act = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=True)
+    mid_variant_act = get_activations(extractor, variant_trans(top_img), middle_module, channel_id=neuron, use_center=True)
+
+    mid_act_delta = np.clip(mid_variant_act, 0, None)[0] - np.clip(mid_base_act, 0, None)[0]
 
     if imnet_val:
-        top_img = [
-            norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{middle_module}/intact/{middle_module}_neuron{neuron}/max/exc/{i}.png"))
-            for i in range(9)
-        ]
-        top_img = torch.stack(top_img)
+        top_img = Image.open(
+            f"/media/andrelongon/DATA/tuning_curves/{model_name}/{middle_module}/intact/{middle_module}_neuron{neuron}/max/exc/0.png"
+        )
+        top_img = norm_trans(top_img)
     else:
         top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{middle_module}/unit{neuron}/pos/0_distill_channel.png")
         top_img = norm_trans(top_img)
 
-    mid_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=imnet_val)
-    mid_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=imnet_val)
-    mid_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=imnet_val)
+    if variant == "scale":
+        #   TODO:  perhaps use padding_mode='edge' or 'reflect'.
+        variant_trans = transforms.Compose([
+            transforms.Resize(112),
+            transforms.Pad(56, padding_mode='reflect')
+        ])
+
+    in_base_act = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=True)
+    in_variant_act = get_activations(extractor, variant_trans(top_img), input_module, channel_id=neuron, use_center=True)
+
+    in_act_delta = np.clip(in_variant_act, 0, None)[0] - np.clip(in_base_act, 0, None)[0]
+
+    if show_results:
+        print(f"\nMid base Act:  {mid_base_act[0]},  Mid {variant} act:  {mid_variant_act[0]}")
+        print(f"\nIn base Act:  {in_base_act[0]},  In {variant} act:  {in_variant_act[0]}")
+
+    return mid_act_delta, in_act_delta
+
+
+
+def stream_inspect(extractor, model_name, output_module, input_module, middle_module, neuron, imnet_val=False, show_results=False):
+    top_img = None
+    if imnet_val:
+        # top_img = [
+        #     norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{output_module}/intact/{output_module}_neuron{neuron}/max/exc/{i}.png"))
+        #     for i in range(9)
+        # ]
+        # top_img = torch.stack(top_img)
+
+        top_img = Image.open(
+            f"/media/andrelongon/DATA/tuning_curves/{model_name}/{output_module.split('.prerelu_out')[0]}/intact/{output_module.split('.prerelu_out')[0]}_neuron{neuron}/max/exc/0.png"
+        )
+        top_img = norm_trans(top_img)
+    else:
+        top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{output_module}/unit{neuron}/pos/0_center.png")
+        top_img = norm_trans(top_img)
+
+    #   NOTE:  retrieve center act from channel as this is how top imnet imgs are sorted.
+    out_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=True)
+    out_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=True)
+    out_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=True)
+
+    if imnet_val:
+        # top_img = [
+        #     norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{input_module}/intact/{input_module}_neuron{neuron}/max/exc/{i}.png"))
+        #     for i in range(9)
+        # ]
+        # top_img = torch.stack(top_img)
+
+        top_img = Image.open(
+            f"/media/andrelongon/DATA/tuning_curves/{model_name}/{input_module.split('.prerelu_out')[0]}/intact/{input_module.split('.prerelu_out')[0]}_neuron{neuron}/max/exc/0.png"
+        )
+        top_img = norm_trans(top_img)
+    else:
+        top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{input_module}/unit{neuron}/pos/0_center.png")
+        top_img = norm_trans(top_img)
+
+    in_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=True)
+    in_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=True)
+    in_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=True)
+
+    if imnet_val:
+        # top_img = [
+        #     norm_trans(Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{middle_module}/intact/{middle_module}_neuron{neuron}/max/exc/{i}.png"))
+        #     for i in range(9)
+        # ]
+        # top_img = torch.stack(top_img)
+
+        top_img = Image.open(f"/media/andrelongon/DATA/tuning_curves/{model_name}/{middle_module}/intact/{middle_module}_neuron{neuron}/max/exc/0.png")
+        top_img = norm_trans(top_img)
+    else:
+        top_img = Image.open(f"/media/andrelongon/DATA/feature_viz/intact/{model_name}/{middle_module}/unit{neuron}/pos/0_center.png")
+        top_img = norm_trans(top_img)
+
+    mid_out_acts = get_activations(extractor, top_img, output_module, channel_id=neuron, use_center=True)
+    mid_in_acts = get_activations(extractor, top_img, input_module, channel_id=neuron, use_center=True)
+    mid_mid_acts = get_activations(extractor, top_img, middle_module, channel_id=neuron, use_center=True)
 
     if show_results:
         print("---OUTPUT MODULE TOP IMGS---")
@@ -263,7 +320,7 @@ def stream_inspect(extractor, model_name, output_module, input_module, middle_mo
         print("INPUT ACT")
         print(f"Total act: {np.mean(out_in_acts)}, Pos act: {np.mean(np.clip(out_in_acts, 0, None))}, Neg act: {np.mean(np.clip(out_in_acts, None, 0))}")
 
-        print("BN3 ACT")
+        print("BN ACT")
         print(f"Total act: {np.mean(out_mid_acts)}, Pos act: {np.mean(np.clip(out_mid_acts, 0, None))}, Neg act: {np.mean(np.clip(out_mid_acts, None, 0))}")
         print("-------------------------------")
 
@@ -274,7 +331,7 @@ def stream_inspect(extractor, model_name, output_module, input_module, middle_mo
         print("INPUT ACT")
         print(f"Total act: {np.mean(in_in_acts)}, Pos act: {np.mean(np.clip(in_in_acts, 0, None))}, Neg act: {np.mean(np.clip(in_in_acts, None, 0))}")
 
-        print("BN3 ACT")
+        print("BN ACT")
         print(f"Total act: {np.mean(in_mid_acts)}, Pos act: {np.mean(np.clip(in_mid_acts, 0, None))}, Neg act: {np.mean(np.clip(in_mid_acts, None, 0))}")
         print("-------------------------------")
 
@@ -285,7 +342,7 @@ def stream_inspect(extractor, model_name, output_module, input_module, middle_mo
         print("INPUT ACT")
         print(f"Total act: {np.mean(mid_in_acts)}, Pos act: {np.mean(np.clip(mid_in_acts, 0, None))}, Neg act: {np.mean(np.clip(mid_in_acts, None, 0))}")
 
-        print("BN3 ACT")
+        print("BN ACT")
         print(f"Total act: {np.mean(mid_mid_acts)}, Pos act: {np.mean(np.clip(mid_mid_acts, 0, None))}, Neg act: {np.mean(np.clip(mid_mid_acts, None, 0))}")
         print("-------------------------------")
 
@@ -348,17 +405,17 @@ if __name__ == "__main__":
     if network == "cornet-s":
         model = CORnet_S()
         model.load_state_dict(torch.load("/home/andrelongon/Documents/inhibition_code/weights/cornet-s.pth"))
-        extractor = get_extractor_from_model(model=model, device='cpu', backend='pt')
+        extractor = get_extractor_from_model(model=model, device='cuda:0', backend='pt')
     elif network == "resnet50_barlow":
         model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
-        extractor = get_extractor_from_model(model=model, device='cpu', backend='pt')
+        extractor = get_extractor_from_model(model=model, device='cuda:0', backend='pt')
     else:
         model_params = {'weights': 'IMAGENET1K_V1'} if network == 'resnet152' or network == 'resnet50' else None
 
         extractor = get_extractor(
             model_name=network,
             source='torchvision',
-            device='cuda',
+            device='cuda:0',
             pretrained=True,
             model_parameters=model_params
         )
@@ -387,32 +444,127 @@ if __name__ == "__main__":
 
         print(f"Layer {target_module} percent neurons with overlap:  {overlaps / num_neurons}")
         # print(np.unique(intersects))
-    elif run_mode == 'stream_logic':
-        output_module = 'layer3.1'
-        input_module = 'layer3.0'
-        middle_module = 'layer3.1.bn2'
-        # middle_name = 'layer3.5.bn3'
-        num_neurons = 256
-
-        mixes = []
-        in_mid_acts = []
-        for n in range(num_neurons):
-            # print(f"\n\nNEURON {neuron}")
-            acts = stream_inspect(extractor, network, output_module, input_module, middle_module, n, imnet_val=True, show_results=False)
-            
-            # mixes.append(mix_metric(**acts, inverse=False, mix_only=False))
-            in_mid_acts.append(acts['in_mid_acts'])
-
-            # exit()
-
-        # print("TOP MIXES")
-        # print(torch.topk(torch.tensor(mixes), 9))
-
-        print("TOP BN INPUT INHIBITION")
-        print(torch.topk(torch.tensor(in_mid_acts), 9, largest=False))
-
     elif run_mode == 'top_weights':
         module = 'layer4.1.conv1'
         weights = extractor.model.state_dict()[module + ".weight"]
 
         top_weights(weights)
+    elif run_mode == 'stream_logic':
+        output_module = 'layer4.1.prerelu_out'
+        input_module = 'layer4.0.prerelu_out'
+        middle_module = 'layer4.1.bn2'
+        num_neurons = 512
+
+        xors = []
+        ands = []
+
+        scale_mid_measures = []
+        scale_in_measures = []
+        flip_mid_measures = []
+        flip_in_measures = []
+        
+        mixes = []
+        in_mid_acts = []
+        imnet_val = False
+        show_results = False
+        for n in range(num_neurons):
+            # print(f"\n\nNEURON {neuron}")
+            acts = stream_inspect(extractor, network, output_module, input_module, middle_module, n, imnet_val=imnet_val, show_results=show_results)
+
+            xors.append(xor_metric(**acts))
+            ands.append(and_metric(**acts))
+
+            mid_act_delta, in_act_delta = measure_invariance(extractor, network, output_module, input_module, middle_module, n, imnet_val=imnet_val, show_results=show_results)
+            #   NOTE:  store deltas as a perc of max activation to control for different act ranges in the two modules.
+            scale_mid_measures.append(mid_act_delta / acts['mid_mid_acts'])
+            scale_in_measures.append(in_act_delta / acts['in_in_acts'])
+
+            mid_act_delta, in_act_delta = measure_invariance(extractor, network, output_module, input_module, middle_module, n, variant="flip", imnet_val=imnet_val, show_results=show_results)
+            flip_mid_measures.append(mid_act_delta / acts['mid_mid_acts'])
+            flip_in_measures.append(in_act_delta / acts['in_in_acts'])
+            
+            converted_mix = None
+            if acts['out_mid_acts'] <= 0:
+                converted_mix = acts['out_in_acts'] / (1e-4)
+            elif acts['out_in_acts'] <= 0:
+                converted_mix = 0
+            else:
+                converted_mix = acts['out_in_acts'] / acts['out_mid_acts']
+
+            #   TODO:  Plot in_out_acts to see how many channels successfully erase the channel contents.
+            #   NOTE:  filter by in_mid_acts < 0 to concentrate on overwrites with negative bns (alt filter by mix < 0.5)
+            # if converted_mix < 0.5:
+            mixes.append(converted_mix)
+            in_mid_acts.append(acts['in_mid_acts'])
+
+        # print("XORS")
+        # print(torch.nonzero(torch.tensor(xors)).shape)
+        # print("\nANDS")
+        # print(torch.nonzero(torch.tensor(ands)).shape)
+
+        scale_mid_measures = torch.tensor(scale_mid_measures)
+        scale_in_measures = torch.tensor(scale_in_measures)
+        flip_mid_measures = torch.tensor(flip_mid_measures)
+        flip_in_measures = torch.tensor(flip_in_measures)
+
+        print(f"\nMean mix:  {torch.mean(torch.tensor(mixes))}")
+
+        print("\nSCALES (top mid, top in)")
+        #   mean in vals of top mid
+        #   \n{torch.mean(scale_in_measures[torch.topk(scale_mid_measures, 9)[1]])}
+        print(f"{torch.topk(scale_mid_measures, 9)}\n{torch.topk(scale_in_measures, 9)}")
+        scale_mid_copy = torch.clone(scale_mid_measures)
+        scale_in_copy = torch.clone(scale_in_measures)
+        scale_mid_copy[torch.nonzero(scale_mid_copy < 0)] = -1e5
+        scale_in_copy[torch.nonzero(scale_in_copy < 0)] = -1e5
+        print(f"Top cross variance act delta:  {torch.topk(scale_mid_copy + scale_in_copy, 9)}")
+        print("\nMEAN MIX FOR TOP CROSS SCALES")
+        print(f"{torch.mean(torch.tensor(mixes)[torch.topk(scale_mid_copy + scale_in_copy, 9)[1]])}")
+
+        #   TODO:  does higher cross variance delta act correlation with mix=1?
+
+        print("\nFLIPS (top mid, top in)")
+        print(f"{torch.topk(flip_mid_measures, 9)}\n{torch.topk(flip_in_measures, 9)}")
+        flip_mid_copy = torch.clone(flip_mid_measures)
+        flip_in_copy = torch.clone(flip_in_measures)
+        flip_mid_copy[torch.nonzero(flip_mid_copy < 0)] = -1e5
+        flip_in_copy[torch.nonzero(flip_in_copy < 0)] = -1e5
+        print(f"Top cross variance act delta:  {torch.topk(flip_mid_copy + flip_in_copy, 9)}")
+        print("\nMEAN MIX FOR TOP CROSS FLIPS")
+        print(f"{torch.mean(torch.tensor(mixes)[torch.topk(flip_mid_copy + flip_in_copy, 9)[1]])}")
+
+        #   TODO:  somehow maintain their positive or negative delta sign.  Maybe plot separately?
+        # scale_mid_measures = np.array(scale_mid_measures)
+        # scale_mid_measures = (scale_mid_measures - np.min(scale_mid_measures)) / (np.max(scale_mid_measures) - np.min(scale_mid_measures))
+        # scale_in_measures = np.array(scale_in_measures)
+        # scale_in_measures = (scale_in_measures - np.min(scale_in_measures)) / (np.max(scale_in_measures) - np.min(scale_in_measures))
+
+        # flip_mid_measures = np.array(flip_mid_measures)
+        # flip_mid_measures = (flip_mid_measures - np.min(flip_mid_measures)) / (np.max(flip_mid_measures) - np.min(flip_mid_measures))
+        # flip_in_measures = np.array(flip_in_measures)
+        # flip_in_measures = (flip_in_measures - np.min(flip_in_measures)) / (np.max(flip_in_measures) - np.min(flip_in_measures))
+
+        scale_fig = px.scatter(x=scale_mid_measures, y=scale_in_measures, title="Scale")
+        flip_fig = px.scatter(x=flip_mid_measures, y=flip_in_measures, title="Flip")
+        scale_fig.show()
+        flip_fig.show()
+
+        r, p_val = pearsonr(scale_mid_measures, scale_in_measures)
+        print(f"\nScale correlation results: r={r}, p={p_val}") 
+
+        r, p_val = pearsonr(flip_mid_measures, flip_in_measures)
+        print(f"Flip correlation results: r={r}, p={p_val}")
+
+        # print("\nTOP OVERWRITES")
+        # print(torch.topk(torch.tensor(mixes), 9, largest=False))
+        # print("\nTOP BN INPUT INHIBITION")
+        # print(torch.topk(torch.tensor(in_mid_acts), 9, largest=False))
+
+        # fig = px.scatter(x=mixes, y=in_mid_acts)
+        # fig.show()
+
+        # r, p_val = pearsonr(mixes, in_mid_acts)
+        # print(f"\nMix-bn_act correlation results: r={r}, p={p_val}")
+
+        #   TODO:  auto-generate 1x3 grid of in-block-out channel feature vizs of top cross delta channels for paper figures.
+        #          put code in feature_grid.py and call here.
