@@ -8,11 +8,11 @@ from scipy.spatial.distance import cosine
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from circuit_toolkit.selectivity_utils import saveTopN
+# from circuit_toolkit.selectivity_utils import saveTopN
 
-from imnet_val import validate_tuning_curve_thingsvision
-from modify_weights import clamp_ablate_unit, invert_weights
-from plot_utils import curve_corr_plot, normalize, top_bot_layer_ranks
+# from imnet_val import validate_tuning_curve_thingsvision
+# from modify_weights import clamp_ablate_unit, invert_weights
+# from plot_utils import curve_corr_plot, normalize, top_bot_layer_ranks
 
 
 #   TODO - how to measure similarity?  Cosine between the two 50k tuning vectors?
@@ -389,28 +389,65 @@ def weight_overlap(model_name, weight_name, base_neuron, statesdir=None):
     print(f"Avg neg overlap: {torch.mean(torch.Tensor(neg_laps))}")
 
 
+def load_layer_acts(rootdir, layer, num_neurons):
+    all_acts = []
+    for n in range(num_neurons):
+        all_acts.append(np.load(f'{rootdir}/{layer}/{layer}_unit{n}_unrolled_act.npy'))
+
+    return np.array(all_acts)
+
+
+def coact_corr(acts):
+    #   TODO:  for a given layer, load all imnet val acts for all neurons into single tensor.
+    #          Then for each image, compute layer mean act to obtain a 50k vector.  Now for each
+    #          neuron, compute corr between its tuning curve and this mean curve.  Then return
+    #          the k neurons with lowest corr.  These are the targets to assess cross-inhibition.
+    mean_acts = np.mean(np.clip(acts, a_min=0, a_max=None), axis=0)
+
+    all_corrs = []
+    for curve in acts:
+        all_corrs.append(pearsonr(np.clip(curve, a_min=0, a_max=None), mean_acts)[0])
+
+    return np.array(all_corrs)
+
+
+
+def cross_inhib(acts, targets):
+    #   TODO:  for each target, retrieve layer acts for its top-k images (load in its ords and retrieve
+    #          all neurons' acts to those ords).  Identify neurons with highest negative acts and visualize
+    #          their bot 9 activating images.  See any similarities with the target's top activating images?
+    for target in targets:
+        img_idx = np.flip(np.argsort(acts[target]))[:9]
+        cross_inh = np.argsort(np.mean(acts[:, img_idx], axis=1))[:9]
+        print(f'Bottom Neurons for Target {target}: {cross_inh}\n')
 
 
 if __name__ == "__main__":
-    extractor = get_extractor(
-        model_name='alexnet',
-        source='torchvision',
-        device='cuda',
-        pretrained=True
-    )
 
-    pos_fracs = []
-    neg_fracs = []
-    for i in range(512):
-        pos_frac, neg_frac = intact_curve_broadness(i, "layer4.1.Conv2dconv2")
+    all_acts = load_layer_acts('/media/andrelongon/DATA/tuning_curves/resnet18', 'layer3.1.bn1', 256)
+    all_mean_corrs = coact_corr(all_acts)
 
-        pos_fracs.append(pos_frac)
-        neg_fracs.append(neg_frac)
+    sort_ids = np.argsort(all_mean_corrs)
+    cross_inhib(all_acts, sort_ids[:5])
 
-    print(np.mean(np.array(pos_fracs)))
-    print(np.mean(np.array(neg_fracs)))
 
-    exit()
+    # extractor = get_extractor(
+    #     model_name='alexnet',
+    #     source='torchvision',
+    #     device='cuda',
+    #     pretrained=True
+    # )
+
+    # pos_fracs = []
+    # neg_fracs = []
+    # for i in range(512):
+    #     pos_frac, neg_frac = intact_curve_broadness(i, "layer4.1.Conv2dconv2")
+
+    #     pos_fracs.append(pos_frac)
+    #     neg_fracs.append(neg_frac)
+
+    # print(np.mean(np.array(pos_fracs)))
+    # print(np.mean(np.array(neg_fracs)))
 
     # inverted_corrs = []
     # all_exc_mean = []
